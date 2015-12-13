@@ -24,25 +24,14 @@ fun main(args:Array<String>)
     thread()
     {
         val hi1 = mux1.connect(2)
-        val hi2 = mux1.connect(3)
-        val hi3 = mux1.connect(4)
-        val hi4 = mux1.connect(5)
 
         thread {
-            println(DataInputStream(hi1.first).readUTF())
-            Thread.sleep(5000)
-        }
-        thread {
-            DataOutputStream(hi2.second).writeUTF("hello from hi2")
-            Thread.sleep(5000)
-        }
-        thread {
-            println(DataInputStream(hi3.first).readUTF())
-            Thread.sleep(5000)
-        }
-        thread {
-            DataOutputStream(hi4.second).writeUTF("hello from hi4")
-            Thread.sleep(5000)
+            hi1.first.close()
+//            while(true)
+//            {
+//                println(DataInputStream(hi1.first).readUTF())
+//            }
+//            Thread.sleep(5000)
         }
 
         Thread.sleep(5000)
@@ -51,24 +40,13 @@ fun main(args:Array<String>)
     thread()
     {
         val bye1 = mux2.accept()
-        val bye2 = mux2.accept()
-        val bye3 = mux2.accept()
-        val bye4 = mux2.accept()
 
         thread {
-            DataOutputStream(bye1.second).writeUTF("hello from bye1")
-            Thread.sleep(5000)
-        }
-        thread {
-            println(DataInputStream(bye2.first).readUTF())
-            Thread.sleep(5000)
-        }
-        thread {
-            DataOutputStream(bye3.second).writeUTF("hello from bye3")
-            Thread.sleep(5000)
-        }
-        thread {
-            println(DataInputStream(bye4.first).readUTF())
+            Thread.sleep(2000)
+            repeat(Int.MAX_VALUE)
+            {
+                DataOutputStream(bye1.second).writeUTF("hello from bye1")
+            }
             Thread.sleep(5000)
         }
 

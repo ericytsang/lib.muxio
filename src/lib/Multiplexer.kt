@@ -1,25 +1,21 @@
 package lib
 
-import java.io.Closeable
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ConnectException
-import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 import java.util.concurrent.LinkedBlockingQueue
-import kotlin.concurrent.currentThread
-import kotlin.properties.Delegates.observable
+import java.util.concurrent.Semaphore
 
 /**
  * Created by Eric Tsang on 12/12/2015.
  */
 
 class Multiplexer private constructor(
-    private val _inputStream:InputStream,
-    private val _outputStream:OutputStream)
+    val inputStream:InputStream,
+    val outputStream:OutputStream)
 {
     companion object
     {
@@ -38,17 +34,24 @@ class Multiplexer private constructor(
     /**
      * underlying [DataInputStream] that data is read and de-multiplexed from.
      */
-    private val inputStream = DataInputStream(_inputStream)
+    private val multiplexedInputStream = DataInputStream(inputStream)
 
     /**
      * underlying [DataOutputStream] that data is written and multiplexed into.
      */
-    private val outputStream = DataOutputStream(_outputStream)
+    private val multiplexedOutputStream = DataOutputStream(outputStream)
 
     /**
-     * maps IDs to the associated [LinkedBlockingQueue] of data.
+     * maps port numbers to the associated [Pair] of [InputStream]s and
+     * [OutputStream]s.
      */
-    private val demuxedStreams = LinkedHashMap<Short,MyInputStream>()
+    private val demultiplexedStreamPairs = LinkedHashMap<Short,Pair<BlockingQueueInputStream,MultiplexingOutputStream>>()
+
+    /**
+     * maps port numbers to the associated [Object] being [Object.wait]ed on
+     * that which should be notified when the connection is accepted.
+     */
+    private val releasedOnAccept = LinkedHashMap<Short,Semaphore>()
 
     /**
      * queue of received connection requests that have yet to be accepted
@@ -63,14 +66,22 @@ class Multiplexer private constructor(
      */
     fun connect(port:Short):Pair<InputStream,OutputStream>
     {
-        val demuxedStreamPair = Pair(MyInputStream(),MyOutputStream(port))
+        val demuxedStreamPair = Pair(
+
+            BlockingQueueInputStream(
+                closeListener = {sendCloseRemoteOut(port)}),
+
+            MultiplexingOutputStream(
+                sharedStream = multiplexedOutputStream,
+                sendHeader = {outs,b,off,len -> sendHeader(outs,port,len)},
+                closeListener = {sendCloseRemoteIn(port)}))
 
         // try to create a local sink to receive data for the stream pair
-        synchronized(demuxedStreams)
+        synchronized(demultiplexedStreamPairs)
         {
-            if (!demuxedStreams.containsKey(port))
+            if (!demultiplexedStreamPairs.containsKey(port))
             {
-                demuxedStreams.put(port,demuxedStreamPair.first)
+                demultiplexedStreamPairs.put(port,demuxedStreamPair)
             }
             else
             {
@@ -78,11 +89,14 @@ class Multiplexer private constructor(
             }
         }
 
+        // prepare to wait for acceptance
+        prepareWaitUntilAccepted(port)
+
         // send a connect request to the remote multiplexer
         sendConnect(port)
 
-        // wait for an accept packet to arrive at the input stream
-        demuxedStreamPair.first.waitUntilConnected()
+        // wait until the connection is accepted or interrupted
+        waitUntilAccepted(port)
 
         return demuxedStreamPair
     }
@@ -97,14 +111,23 @@ class Multiplexer private constructor(
     fun accept():Pair<InputStream,OutputStream>
     {
         val port = receivedConnectRequests.take()
-        val demuxedStreamPair = Pair(MyInputStream(),MyOutputStream(port))
+
+        val demuxedStreamPair = Pair(
+
+            BlockingQueueInputStream(
+                closeListener = {sendCloseRemoteOut(port)}),
+
+            MultiplexingOutputStream(
+                sharedStream = multiplexedOutputStream,
+                sendHeader = {outs,b,off,len -> sendHeader(outs,port,len)},
+                closeListener = {sendCloseRemoteIn(port)}))
 
         // try to create a local sink to receive data for the stream pair
-        synchronized(demuxedStreams)
+        synchronized(demultiplexedStreamPairs)
         {
-            if (!demuxedStreams.containsKey(port))
+            if (!demultiplexedStreamPairs.containsKey(port))
             {
-                demuxedStreams.put(port,demuxedStreamPair.first)
+                demultiplexedStreamPairs.put(port,demuxedStreamPair)
             }
             else
             {
@@ -112,109 +135,153 @@ class Multiplexer private constructor(
             }
         }
 
-        // set isConnected to true...
-        demuxedStreams[port]!!.isConnected = true
-
         // send a accept packet to remote
         sendAccept(port);
 
         return demuxedStreamPair
     }
 
-    // todo: implement...
-    fun close(port:Short)
+    private fun prepareWaitUntilAccepted(port:Short)
     {
+        // acquire from the semaphore for the port
+        synchronized(releasedOnAccept)
+        {
+            releasedOnAccept[port] = Semaphore(0)
+        }
+    }
 
+    private fun waitUntilAccepted(port:Short)
+    {
+        try
+        {
+            // acquire from the semaphore for the port
+            val sem = synchronized(releasedOnAccept,{releasedOnAccept[port]})
+            sem?:throw NullPointerException("need to call prepareWaitUntilAccepted first")
+            sem.acquireUninterruptibly()
+        }
+        finally
+        {
+            releasedOnAccept.remove(port)
+        }
+    }
+
+    private fun accept(port:Short)
+    {
+        try
+        {
+            // release on the semaphore for the port
+            val sem = synchronized(releasedOnAccept,{releasedOnAccept[port]})
+            sem?.release()
+        }
+        catch(ex:InterruptedException)
+        {
+            releasedOnAccept.remove(port)
+            throw ex
+        }
     }
 
     private fun sendConnect(port:Short)
     {
-        synchronized(outputStream)
+        synchronized(multiplexedOutputStream)
         {
-            outputStream.writeShort(Type.CONNECT.ordinal)
-            outputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeShort(Type.CONNECT.ordinal)
+            multiplexedOutputStream.writeShort(port.toInt())
         }
     }
 
     private fun receiveConnect()
     {
-        synchronized(inputStream)
+        synchronized(multiplexedInputStream)
         {
-            val port = inputStream.readShort()
+            val port = multiplexedInputStream.readShort()
             receivedConnectRequests.put(port)
         }
     }
 
     private fun sendAccept(port:Short)
     {
-        synchronized(outputStream)
+        synchronized(multiplexedOutputStream)
         {
-            outputStream.writeShort(Type.ACCEPT.ordinal)
-            outputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeShort(Type.ACCEPT.ordinal)
+            multiplexedOutputStream.writeShort(port.toInt())
         }
     }
 
     private fun receiveAccept()
     {
-        synchronized(inputStream)
+        synchronized(multiplexedInputStream)
         {
-            val port = inputStream.readShort()
-            demuxedStreams[port]!!.isConnected = true
+            val port = multiplexedInputStream.readShort()
+            accept(port)
         }
     }
 
-    private fun sendData(port:Short,data:ByteArray,off:Int,len:Int)
+    private fun sendHeader(outputStream:OutputStream,port:Short,len:Int)
     {
-        synchronized(outputStream)
+        synchronized(multiplexedOutputStream)
         {
-            outputStream.writeShort(Type.DATA.ordinal)
-            outputStream.writeShort(port.toInt())
-            outputStream.writeInt(len)
-            outputStream.write(data,off,len)
+            multiplexedOutputStream.writeShort(Type.DATA.ordinal)
+            multiplexedOutputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeInt(len)
         }
     }
 
     private fun receiveData()
     {
-        synchronized(inputStream)
+        synchronized(multiplexedInputStream)
         {
-            val key = inputStream.readShort()
-            val len = inputStream.readInt()
+            val key = multiplexedInputStream.readShort()
+            val len = multiplexedInputStream.readInt()
             val data = ByteArray(len)
-            inputStream.readFully(data)
-            synchronized(demuxedStreams)
-            {
-                if (demuxedStreams.containsKey(key))
-                {
-                    val inputStream = demuxedStreams[key]!!
-                    inputStream.data.put(data)
-                }
-            }
+            multiplexedInputStream.readFully(data)
+            val streamPair = demultiplexedStreamPairs[key] ?: return
+            streamPair.first.source.put(data)
         }
     }
 
-    private fun sendClose(port:Short)
+    private fun sendCloseRemoteOut(port:Short)
     {
-        synchronized(outputStream)
+        synchronized(multiplexedOutputStream)
         {
-            outputStream.writeShort(Type.CLOSE.ordinal)
-            outputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeShort(Type.CLOSE_OUT.ordinal)
+            multiplexedOutputStream.writeShort(port.toInt())
         }
     }
 
-    private fun receiveClose()
+    private fun sendCloseRemoteIn(port:Short)
     {
-        synchronized(inputStream)
+        synchronized(multiplexedOutputStream)
         {
-            val key = inputStream.readShort()
-            synchronized(demuxedStreams)
+            multiplexedOutputStream.writeShort(Type.CLOSE_IN.ordinal)
+            multiplexedOutputStream.writeShort(port.toInt())
+        }
+    }
+
+    private fun receiveCloseRemoteInOrOut(type:Type)
+    {
+        // check that the type is valid
+        val requiredTypes = setOf(Type.CLOSE_IN,Type.CLOSE_OUT)
+        if (type !in setOf(Type.CLOSE_IN,Type.CLOSE_OUT))
+            throw IllegalArgumentException("type $type is not in types: $requiredTypes")
+
+        // close the specified stream
+        synchronized(multiplexedInputStream)
+        {
+            // try to get the specified stream pair; bail out otherwise
+            val port = multiplexedInputStream.readShort()
+            val streamPair = demultiplexedStreamPairs[port] ?: return
+
+            // close the specified stream pair, and remove it from the map
+            // if both its input and output streams are closed
+            when (type)
             {
-                if (demuxedStreams.containsKey(key))
-                {
-                    val inputStream = demuxedStreams[key]!!
-                    inputStream.isConnected = false
-                }
+                Type.CLOSE_IN -> streamPair.first.close()
+                Type.CLOSE_OUT -> streamPair.second.close()
+                else -> throw IllegalArgumentException("type $type is not in types: $requiredTypes")
             }
+
+            if (streamPair.first.isClosed && streamPair.second.isClosed)
+                demultiplexedStreamPairs.remove(port)
         }
     }
 
@@ -230,7 +297,7 @@ class Multiplexer private constructor(
             while (true)
             {
                 // read header from stream
-                val type = Type.values()[inputStream.readShort().toInt()]
+                val type = Type.values()[multiplexedInputStream.readShort().toInt()]
 
                 // parse data depending on header
                 when (type)
@@ -238,118 +305,14 @@ class Multiplexer private constructor(
                     Type.CONNECT -> receiveConnect()
                     Type.ACCEPT -> receiveAccept()
                     Type.DATA -> receiveData()
-                    Type.CLOSE -> receiveClose()
+                    Type.CLOSE_IN, Type.CLOSE_OUT -> receiveCloseRemoteInOrOut(type)
                 }
             }
         }
     }
 
-    // todo: refactor to simplify
-    private inner class MyInputStream:InputStream()
+    private enum class Type
     {
-        val data = LinkedBlockingQueue<ByteArray>()
-
-        var currentData:ByteBuffer = ByteBuffer.wrap(ByteArray(0))
-
-        var notifiedOnIsConnectedChanged = Object()
-
-        var isConnected:Boolean = false
-            set(value)
-            {
-                field = value
-                synchronized(notifiedOnIsConnectedChanged)
-                {
-                    notifiedOnIsConnectedChanged.notify()
-                    readingThread?.interrupt()
-                }
-            }
-
-        var readingThread:Thread? = null
-
-        fun waitUntilConnected()
-        {
-            synchronized(notifiedOnIsConnectedChanged)
-            {
-                while(!isConnected) notifiedOnIsConnectedChanged.wait()
-            }
-        }
-
-        override fun read():Int
-        {
-            synchronized(this)
-            {
-                // make sure there is data in the currentData to consume, or throw
-                // something
-                try
-                {
-                    readingThread = currentThread
-                    while (!currentData.hasRemaining())
-                    {
-                        try
-                        {
-                            // take the next chunk of data as the current packet to
-                            // read from if there could potentially be "a next chunk
-                            // of data".
-                            if(isConnected || (!isConnected && !data.isEmpty()))
-                            {
-                                currentData = ByteBuffer.wrap(data.take())
-                            }
-
-                            // no data available; EOF condition is met, throw
-                            // EOFException.
-                            else
-                            {
-                                throw EOFException()
-                            }
-                        }
-                        catch(ex:InterruptedException)
-                        {
-                            // throw EOFException if EOF condition is met.
-                            if (!isConnected && data.isEmpty())
-                            {
-                                throw EOFException()
-                            }
-
-                            // propagate the exception up otherwise...maye user
-                            // interrupted the thread on purpose.
-                            else
-                            {
-                                throw ex
-                            }
-                        }
-                    }
-                }
-                finally
-                {
-                    readingThread = null
-                }
-
-                // return the next byte of data
-                return currentData.get().toInt()
-            }
-        }
+        CONNECT, ACCEPT, DATA, CLOSE_OUT, CLOSE_IN
     }
-
-    private inner class MyOutputStream(val port:Short):OutputStream()
-    {
-        override fun write(b:Int)
-        {
-            write(byteArrayOf(b.toByte()))
-        }
-
-        override fun write(b:ByteArray)
-        {
-            write(b,0,b.size)
-        }
-
-        override fun write(b:ByteArray,off:Int,len:Int)
-        {
-            sendData(port,b,off,len)
-        }
-    }
-}
-
-private enum class Type
-{
-    CONNECT, ACCEPT, DATA, CLOSE
 }
