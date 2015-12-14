@@ -79,7 +79,7 @@ class Multiplexer private constructor(
                 multiplexedOutputStream = multiplexedOutputStream,
                 headerFactory = {b,off,len -> makeDataHeader(port,len)},
                 closeListener = {
-                    sendCloseRemoteIn(port)
+                    sendCloseRemote(port)
                     removeStreamPairIfClosed(port)
                 }))
 
@@ -130,7 +130,7 @@ class Multiplexer private constructor(
                 multiplexedOutputStream = multiplexedOutputStream,
                 headerFactory = {b,off,len -> makeDataHeader(port,len)},
                 closeListener = {
-                    sendCloseRemoteIn(port)
+                    sendCloseRemote(port)
                     removeStreamPairIfClosed(port)
                 }))
 
@@ -177,7 +177,7 @@ class Multiplexer private constructor(
         {
             // acquire from the semaphore for the port
             val sem = synchronized(releasedOnAccept,{releasedOnAccept[port]})
-            sem?:throw NullPointerException("need to call prepareWaitUntilAccepted first")
+            sem ?: throw NullPointerException("need to call prepareWaitUntilAccepted first")
             sem.acquireUninterruptibly()
         }
         finally
@@ -259,7 +259,7 @@ class Multiplexer private constructor(
         }
     }
 
-    private fun sendCloseRemoteIn(port:Short)
+    private fun sendCloseRemote(port:Short)
     {
         synchronized(multiplexedOutputStream)
         {
@@ -268,7 +268,7 @@ class Multiplexer private constructor(
         }
     }
 
-    private fun receiveCloseRemoteInOrOut()
+    private fun receiveCloseRemote()
     {
         // close the specified stream
         synchronized(multiplexedInputStream)
@@ -318,7 +318,7 @@ class Multiplexer private constructor(
                         Type.CONNECT -> receiveConnect()
                         Type.ACCEPT -> receiveAccept()
                         Type.DATA -> receiveData()
-                        Type.CLOSE -> receiveCloseRemoteInOrOut()
+                        Type.CLOSE -> receiveCloseRemote()
                     }
                 }
                 catch(ex:InterruptedException)
