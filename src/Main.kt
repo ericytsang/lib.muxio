@@ -1,6 +1,4 @@
 import lib.Multiplexer
-import java.io.DataInput
-import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
@@ -27,6 +25,7 @@ fun main(args:Array<String>)
 
         thread {
             hi1.first.close()
+            hi1.second.close()
 //            while(true)
 //            {
 //                println(DataInputStream(hi1.first).readUTF())
@@ -42,10 +41,16 @@ fun main(args:Array<String>)
         val bye1 = mux2.accept()
 
         thread {
-            Thread.sleep(2000)
-            repeat(Int.MAX_VALUE)
+            try
             {
-                DataOutputStream(bye1.second).writeUTF("hello from bye1")
+                repeat(Int.MAX_VALUE)
+                {
+                    DataOutputStream(bye1.second).writeUTF("hello from bye1")
+                }
+            }
+            catch(ex:Exception)
+            {
+                ex.printStackTrace()
             }
             Thread.sleep(5000)
         }

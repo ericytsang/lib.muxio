@@ -12,7 +12,6 @@ import java.util.concurrent.Semaphore
 /**
  * Created by Eric Tsang on 12/12/2015.
  */
-
 class Multiplexer private constructor(
     val inputStream:InputStream,
     val outputStream:OutputStream)
@@ -69,12 +68,18 @@ class Multiplexer private constructor(
         val demuxedStreamPair = Pair(
 
             BlockingQueueInputStream(
-                closeListener = {sendCloseRemoteOut(port)}),
+                closeListener = {
+                    sendCloseRemoteOut(port)
+                    removeStreamPairIfClosed(port)
+                }),
 
             MultiplexingOutputStream(
-                sharedStream = multiplexedOutputStream,
-                sendHeader = {outs,b,off,len -> sendHeader(outs,port,len)},
-                closeListener = {sendCloseRemoteIn(port)}))
+                multiplexedOutputStream = multiplexedOutputStream,
+                sendHeader = {outs,b,off,len -> sendDataHeader(outs,port,len)},
+                closeListener = {
+                    sendCloseRemoteIn(port)
+                    removeStreamPairIfClosed(port)
+                }))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -115,12 +120,18 @@ class Multiplexer private constructor(
         val demuxedStreamPair = Pair(
 
             BlockingQueueInputStream(
-                closeListener = {sendCloseRemoteOut(port)}),
+                closeListener = {
+                    sendCloseRemoteOut(port)
+                    removeStreamPairIfClosed(port)
+                }),
 
             MultiplexingOutputStream(
-                sharedStream = multiplexedOutputStream,
-                sendHeader = {outs,b,off,len -> sendHeader(outs,port,len)},
-                closeListener = {sendCloseRemoteIn(port)}))
+                multiplexedOutputStream = multiplexedOutputStream,
+                sendHeader = {outs,b,off,len -> sendDataHeader(outs,port,len)},
+                closeListener = {
+                    sendCloseRemoteIn(port)
+                    removeStreamPairIfClosed(port)
+                }))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -216,7 +227,7 @@ class Multiplexer private constructor(
         }
     }
 
-    private fun sendHeader(outputStream:OutputStream,port:Short,len:Int)
+    private fun sendDataHeader(outputStream:OutputStream,port:Short,len:Int)
     {
         synchronized(multiplexedOutputStream)
         {
@@ -235,7 +246,7 @@ class Multiplexer private constructor(
             val data = ByteArray(len)
             multiplexedInputStream.readFully(data)
             val streamPair = demultiplexedStreamPairs[key] ?: return
-            streamPair.first.source.put(data)
+            if(!streamPair.first.isClosed) streamPair.first.source.put(data)
         }
     }
 
@@ -267,7 +278,6 @@ class Multiplexer private constructor(
         // close the specified stream
         synchronized(multiplexedInputStream)
         {
-            // try to get the specified stream pair; bail out otherwise
             val port = multiplexedInputStream.readShort()
             val streamPair = demultiplexedStreamPairs[port] ?: return
 
@@ -277,11 +287,22 @@ class Multiplexer private constructor(
             {
                 Type.CLOSE_IN -> streamPair.first.close()
                 Type.CLOSE_OUT -> streamPair.second.close()
-                else -> throw IllegalArgumentException("type $type is not in types: $requiredTypes")
+                else -> throw RuntimeException()
             }
 
+            removeStreamPairIfClosed(port)
+        }
+    }
+
+    private fun removeStreamPairIfClosed(port:Short)
+    {
+        synchronized(demultiplexedStreamPairs)
+        {
+            val streamPair = demultiplexedStreamPairs[port] ?: return
             if (streamPair.first.isClosed && streamPair.second.isClosed)
+            {
                 demultiplexedStreamPairs.remove(port)
+            }
         }
     }
 

@@ -1,6 +1,5 @@
 package lib
 
-import java.io.Closeable
 import java.io.IOException
 import java.io.OutputStream
 import kotlin.concurrent.currentThread
@@ -9,7 +8,7 @@ import kotlin.concurrent.currentThread
  * Created by Eric Tsang on 12/13/2015.
  */
 class MultiplexingOutputStream(
-    val sharedStream:OutputStream,
+    val multiplexedOutputStream:OutputStream,
     val sendHeader:(sharedStream:OutputStream,b:ByteArray,off:Int,len:Int)->Unit = {stream,b,off,len->ByteArray(0)},
     val closeListener:(()->Unit)?):
     OutputStream()
@@ -30,7 +29,7 @@ class MultiplexingOutputStream(
 
     override fun write(b:ByteArray,off:Int,len:Int)
     {
-        synchronized(sharedStream)
+        synchronized(multiplexedOutputStream)
         {
             try
             {
@@ -38,8 +37,8 @@ class MultiplexingOutputStream(
 
                 if (!isClosed)
                 {
-                    sendHeader(sharedStream,b,off,len)
-                    sharedStream.write(b,off,len)
+                    sendHeader(multiplexedOutputStream,b,off,len)
+                    multiplexedOutputStream.write(b,off,len)
                 }
                 else
                 {
