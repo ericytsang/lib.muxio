@@ -56,15 +56,40 @@ class Multiplexer private constructor(
     private val releasedOnAccept = LinkedHashMap<Short,Semaphore>()
 
     /**
-     * queue of received connection requests that have yet to be accepted
+     * queue of received connection requests that have yet to be accepted.
      */
     private val receivedConnectRequests = LinkedBlockingQueue<Short>()
 
     /**
-     * blocks until the connect accepted, or the streams are closed.
-     * once accepted by the remote [Multiplexer], the method returns with a
-     * [Pair] of streams used to communicate with the remote [Pair] of streams
-     * returned when the remote [Multiplexer] called [accept].
+     * convenience method. automatically picks an unused port to connect on.
+     */
+    fun connect():Pair<InputStream,OutputStream>
+    {
+        synchronized(demultiplexedStreamPairs)
+        {
+            for(port in Short.MIN_VALUE..Short.MAX_VALUE)
+            {
+                try
+                {
+                    return connect(port.toShort())
+                }
+                catch(ex:ConnectException)
+                {
+                    // part of the normal flow...
+                }
+            }
+            throw ConnectException("all ports are in use...")
+        }
+    }
+
+    /**
+     * blocks until the connect request is accepted. once accepted by the remote
+     * [Multiplexer], the method returns with a [Pair] of streams used to
+     * communicate with the remote [Pair] of streams returned when the remote
+     * [Multiplexer] called [accept].
+     *
+     * @param port internal identifier for the demultiplexed stream. there can
+     * only be one active demultiplexed stream per port at any time.
      */
     fun connect(port:Short):Pair<InputStream,OutputStream>
     {
