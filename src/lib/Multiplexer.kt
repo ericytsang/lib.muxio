@@ -11,6 +11,12 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 
 /**
+ * that receives and de-multiplexes data from the [inputStream], and multiplexes
+ * data to send out the [outputStream]. provides methods ([connect] and
+ * [accept]) which can be used to create an [InputStream] to read de-multiplexed
+ * data from the [Multiplexer]'s [inputStream], and an [OutputStream] which can
+ * be used to write multiplexed data out the [Multiplexer]'s [outputStream].
+ *
  * Created by Eric Tsang on 12/12/2015.
  */
 class Multiplexer private constructor(
@@ -19,13 +25,32 @@ class Multiplexer private constructor(
 {
     companion object
     {
+        /**
+         * creates a [Multiplexer] that receives and de-multiplexes data from
+         * the [inputStream], and multiplexes data to send out the
+         * [outputStream].
+         *
+         * @param inputStream used to receive multiplexed data from a
+         * corresponding [Multiplexer] object.
+         *
+         * @param outputStream used to send data to a corresponding
+         * [Multiplexer] object.
+         */
         fun wrap(inputStream:InputStream,outputStream:OutputStream):Multiplexer =
             Multiplexer(inputStream,outputStream)
 
+        /**
+         * convenience method.
+         */
         fun wrap(streamPair:Pair<InputStream,OutputStream>):Multiplexer =
             Multiplexer(streamPair.first,streamPair.second)
     }
 
+    /**
+     * reads multiplexed data from the [Multiplexer]'s [inputStream], then
+     * parses and multiplexes the received data to the appropriate [InputStream]
+     * stored in [demultiplexedStreamPairs],
+     */
     private val readThread = ReadThread()
 
     init
@@ -61,7 +86,8 @@ class Multiplexer private constructor(
     private val receivedConnectRequests = LinkedBlockingQueue<Short>()
 
     /**
-     * convenience method. automatically picks an unused port to connect on.
+     * convenience method. automatically picks an unused port to connect to the
+     * remote [Multiplexer] by.
      */
     fun connect():Pair<InputStream,OutputStream>
     {
@@ -178,14 +204,20 @@ class Multiplexer private constructor(
         return demuxedStreamPair
     }
 
-    val isShutdown:Boolean
-        get() = readThread.isAlive
-
+    /**
+     * interrupts and terminates [Multiplexer.readThread]
+     */
     fun shutdown()
     {
         readThread.interrupt()
         readThread.join()
     }
+
+    /**
+     * returns true when [Multiplexer.readThread] is alive; false otherwise.]
+     */
+    val isShutdown:Boolean
+        get() = readThread.isAlive
 
     private fun prepareWaitUntilAccepted(port:Short)
     {
