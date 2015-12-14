@@ -1,6 +1,7 @@
 package lib
 
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.io.OutputStream
 import kotlin.concurrent.currentThread
 
@@ -9,8 +10,8 @@ import kotlin.concurrent.currentThread
  */
 class MultiplexingOutputStream(
     val multiplexedOutputStream:OutputStream,
-    val sendHeader:(sharedStream:OutputStream,b:ByteArray,off:Int,len:Int)->Unit = {stream,b,off,len->ByteArray(0)},
-    val closeListener:(()->Unit)?):
+    val headerFactory:((b:ByteArray,off:Int,len:Int)->ByteArray)? = null,
+    val closeListener:(()->Unit)? = null):
     OutputStream()
 {
     var isClosed = false
@@ -29,41 +30,43 @@ class MultiplexingOutputStream(
 
     override fun write(b:ByteArray,off:Int,len:Int)
     {
-        synchronized(multiplexedOutputStream)
+        try
         {
-            try
-            {
-                writeThread = currentThread
+            writeThread = currentThread
 
-                if (!isClosed)
+            if (!isClosed)
+            {
+                val header = headerFactory?.invoke(b,off,len) ?: ByteArray(0)
+                synchronized(multiplexedOutputStream)
                 {
-                    sendHeader(multiplexedOutputStream,b,off,len)
+                    multiplexedOutputStream.write(header)
                     multiplexedOutputStream.write(b,off,len)
                 }
-                else
-                {
-                    throw IOException("stream is closed; cannot write.")
-                }
             }
-
-            // catch InterruptedException as it might have been thrown as a
-            // result of "close" being called
-            catch(ex:InterruptedException)
+            else
             {
-                if(isClosed)
-                {
-                    throw IOException("stream is closed; cannot write.")
-                }
-                else
-                {
-                    throw ex
-                }
+                throw IOException("stream is closed; cannot write.")
             }
+        }
 
-            finally
+        // catch InterruptedException as it might have been thrown as a
+        // result of "close" being called
+        catch(ex:InterruptedException)
+        {
+            if (isClosed)
             {
-                writeThread = null
+                throw IOException("stream is closed; cannot write.")
             }
+            else
+            {
+                throw InterruptedIOException()
+            }
+        }
+
+        // set write thread to null, so we don't interrupt it unnecessarily
+        finally
+        {
+            writeThread = null
         }
     }
 

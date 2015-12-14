@@ -2,6 +2,7 @@ package lib
 
 import java.io.EOFException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.nio.ByteBuffer
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
@@ -12,7 +13,7 @@ import kotlin.concurrent.currentThread
  */
 class BlockingQueueInputStream(
     val source:BlockingQueue<ByteArray> = LinkedBlockingQueue<ByteArray>(),
-    val closeListener:(()->Unit)?):
+    val closeListener:(()->Unit)? = null):
     InputStream()
 {
     private var currentData:ByteBuffer = ByteBuffer.wrap(ByteArray(0))
@@ -45,7 +46,6 @@ class BlockingQueueInputStream(
         return read(b,0,b.size)
     }
 
-    // todo: test
     override fun read(b:ByteArray,off:Int,len:Int):Int
     {
         synchronized(this)
@@ -60,18 +60,19 @@ class BlockingQueueInputStream(
                 {
                     readingThread = currentThread
 
-                    // take the next ByteArray as the currentData to read from
-                    // if there could potentially be a next ByteArray.
-                    if (!isClosed || (isClosed && source.isNotEmpty()))
+                    when
                     {
-                        currentData = ByteBuffer.wrap(source.take())
-                    }
+                    // take the next ByteArray as the currentData to read from
+                    // if there could potentially be or is a next ByteArray.
+                        !isClosed && source.isEmpty() ->
+                            currentData = ByteBuffer.wrap(source.take())
+                        source.isNotEmpty() ->
+                            currentData = ByteBuffer.wrap(source.poll()!!)
 
                     // no data available; EOF condition is met, throw
                     // EOFException.
-                    else
-                    {
-                        throw EOFException()
+                        isClosed && source.isEmpty() ->
+                            throw EOFException()
                     }
                 }
                 catch(ex:InterruptedException)
@@ -87,7 +88,7 @@ class BlockingQueueInputStream(
                     // interrupted the thread on purpose.
                     else
                     {
-                        throw ex
+                        throw InterruptedIOException()
                     }
                 }
                 finally

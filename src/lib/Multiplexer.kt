@@ -5,6 +5,7 @@ import java.io.DataOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ConnectException
+import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
@@ -75,7 +76,7 @@ class Multiplexer private constructor(
 
             MultiplexingOutputStream(
                 multiplexedOutputStream = multiplexedOutputStream,
-                sendHeader = {outs,b,off,len -> sendDataHeader(outs,port,len)},
+                headerFactory = {b,off,len -> makeDataHeader(port,len)},
                 closeListener = {
                     sendCloseRemoteIn(port)
                     removeStreamPairIfClosed(port)
@@ -127,7 +128,7 @@ class Multiplexer private constructor(
 
             MultiplexingOutputStream(
                 multiplexedOutputStream = multiplexedOutputStream,
-                sendHeader = {outs,b,off,len -> sendDataHeader(outs,port,len)},
+                headerFactory = {b,off,len -> makeDataHeader(port,len)},
                 closeListener = {
                     sendCloseRemoteIn(port)
                     removeStreamPairIfClosed(port)
@@ -227,14 +228,13 @@ class Multiplexer private constructor(
         }
     }
 
-    private fun sendDataHeader(outputStream:OutputStream,port:Short,len:Int)
+    private fun makeDataHeader(port:Short,len:Int):ByteArray
     {
-        synchronized(multiplexedOutputStream)
-        {
-            multiplexedOutputStream.writeShort(Type.DATA.ordinal)
-            multiplexedOutputStream.writeShort(port.toInt())
-            multiplexedOutputStream.writeInt(len)
-        }
+        return ByteBuffer.allocate(8)
+            .putShort(Type.DATA.ordinal.toShort())
+            .putShort(port)
+            .putInt(len)
+            .array()
     }
 
     private fun receiveData()
