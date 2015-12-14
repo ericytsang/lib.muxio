@@ -26,9 +26,11 @@ class Multiplexer private constructor(
             Multiplexer(streamPair.first,streamPair.second)
     }
 
+    private val readThread = ReadThread()
+
     init
     {
-        ReadThread().start()
+        readThread.start()
     }
 
     /**
@@ -70,7 +72,6 @@ class Multiplexer private constructor(
 
             BlockingQueueInputStream(
                 closeListener = {
-                    sendCloseRemoteOut(port)
                     removeStreamPairIfClosed(port)
                 }),
 
@@ -122,7 +123,6 @@ class Multiplexer private constructor(
 
             BlockingQueueInputStream(
                 closeListener = {
-                    sendCloseRemoteOut(port)
                     removeStreamPairIfClosed(port)
                 }),
 
@@ -151,6 +151,15 @@ class Multiplexer private constructor(
         sendAccept(port);
 
         return demuxedStreamPair
+    }
+
+    val isShutdown:Boolean
+        get() = readThread.isAlive
+
+    fun shutdown()
+    {
+        readThread.interrupt()
+        readThread.join()
     }
 
     private fun prepareWaitUntilAccepted(port:Short)
@@ -250,31 +259,17 @@ class Multiplexer private constructor(
         }
     }
 
-    private fun sendCloseRemoteOut(port:Short)
-    {
-        synchronized(multiplexedOutputStream)
-        {
-            multiplexedOutputStream.writeShort(Type.CLOSE_OUT.ordinal)
-            multiplexedOutputStream.writeShort(port.toInt())
-        }
-    }
-
     private fun sendCloseRemoteIn(port:Short)
     {
         synchronized(multiplexedOutputStream)
         {
-            multiplexedOutputStream.writeShort(Type.CLOSE_IN.ordinal)
+            multiplexedOutputStream.writeShort(Type.CLOSE.ordinal)
             multiplexedOutputStream.writeShort(port.toInt())
         }
     }
 
-    private fun receiveCloseRemoteInOrOut(type:Type)
+    private fun receiveCloseRemoteInOrOut()
     {
-        // check that the type is valid
-        val requiredTypes = setOf(Type.CLOSE_IN,Type.CLOSE_OUT)
-        if (type !in setOf(Type.CLOSE_IN,Type.CLOSE_OUT))
-            throw IllegalArgumentException("type $type is not in types: $requiredTypes")
-
         // close the specified stream
         synchronized(multiplexedInputStream)
         {
@@ -283,12 +278,7 @@ class Multiplexer private constructor(
 
             // close the specified stream pair, and remove it from the map
             // if both its input and output streams are closed
-            when (type)
-            {
-                Type.CLOSE_IN -> streamPair.first.close()
-                Type.CLOSE_OUT -> streamPair.second.close()
-                else -> throw RuntimeException()
-            }
+            streamPair.first.close()
 
             removeStreamPairIfClosed(port)
         }
@@ -317,16 +307,23 @@ class Multiplexer private constructor(
         {
             while (true)
             {
-                // read header from stream
-                val type = Type.values()[multiplexedInputStream.readShort().toInt()]
-
-                // parse data depending on header
-                when (type)
+                try
                 {
-                    Type.CONNECT -> receiveConnect()
-                    Type.ACCEPT -> receiveAccept()
-                    Type.DATA -> receiveData()
-                    Type.CLOSE_IN, Type.CLOSE_OUT -> receiveCloseRemoteInOrOut(type)
+                    // read header from stream
+                    val type = Type.values()[multiplexedInputStream.readShort().toInt()]
+
+                    // parse data depending on header
+                    when (type)
+                    {
+                        Type.CONNECT -> receiveConnect()
+                        Type.ACCEPT -> receiveAccept()
+                        Type.DATA -> receiveData()
+                        Type.CLOSE -> receiveCloseRemoteInOrOut()
+                    }
+                }
+                catch(ex:InterruptedException)
+                {
+                    return
                 }
             }
         }
@@ -334,6 +331,6 @@ class Multiplexer private constructor(
 
     private enum class Type
     {
-        CONNECT, ACCEPT, DATA, CLOSE_OUT, CLOSE_IN
+        CONNECT, ACCEPT, DATA, CLOSE
     }
 }
