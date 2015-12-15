@@ -7,7 +7,7 @@ import java.io.InterruptedIOException
 import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 
-public class BlockingQueueInputStreamTest
+class BlockingQueueInputStreamTest
 {
     @Test
     fun testCloseCausesEOFException()
