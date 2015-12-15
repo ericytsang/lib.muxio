@@ -4,7 +4,7 @@ import lib.MultiplexingOutputStream
 import org.junit.Test
 import java.io.*
 import java.nio.ByteBuffer
-import java.util.*
+import java.util.concurrent.BlockingQueue
 import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,7 +19,7 @@ class MultiplexingOutputStreamTest
     {
         val muxedIns = PipedInputStream(100)
         val muxedOuts = PipedOutputStream(muxedIns)
-        val demuxedOuts1 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(4).putInt(l).array()})
 
         val t1 = thread()
@@ -49,9 +49,9 @@ class MultiplexingOutputStreamTest
     {
         val muxedIns = PipedInputStream(1000)
         val muxedOuts = PipedOutputStream(muxedIns)
-        val demuxedOuts1 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(6).putShort(1).putInt(l).array()})
-        val demuxedOuts2 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts2 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(6).putShort(2).putInt(l).array()})
 
         val t1 = thread()
@@ -101,7 +101,7 @@ class MultiplexingOutputStreamTest
     fun testCloseCausesIOExceptionOnSubsequentWrites()
     {
         val muxedOuts = PipedOutputStream(PipedInputStream(1000))
-        val demuxedOuts1 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(6).putShort(1).putInt(l).array()})
         var success = false
 
@@ -124,7 +124,7 @@ class MultiplexingOutputStreamTest
     fun testBlockingWriteCanBeInterruptedByInterrupt()
     {
         val muxedOuts = PipedOutputStream(PipedInputStream(1))
-        val demuxedOuts1 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(6).putShort(1).putInt(l).array()})
         var success = false
 
@@ -153,7 +153,7 @@ class MultiplexingOutputStreamTest
     fun testBlockingWriteCanBeInterruptedByClose()
     {
         val muxedOuts = PipedOutputStream(PipedInputStream(1))
-        val demuxedOuts1 = MultiplexingOutputStream(muxedOuts,
+        val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
             {b,o,l -> ByteBuffer.allocate(6).putShort(1).putInt(l).array()})
         var success = false
 
@@ -176,5 +176,14 @@ class MultiplexingOutputStreamTest
         t1.join()
         t2.join()
         assertTrue(success,"write fails to block, or calling close did not throw IOException")
+    }
+
+    private class MyMultiplexingOutputStream(val outputStream:OutputStream,val headerFactory:(b:ByteArray,off:Int,len:Int)->ByteArray):
+        MultiplexingOutputStream(outputStream)
+    {
+        override fun makeHeader(b:ByteArray,off:Int,len:Int):ByteArray
+        {
+            return headerFactory(b,off,len)
+        }
     }
 }
