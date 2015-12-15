@@ -4,6 +4,7 @@ import muxio.lib.BlockingStreamPair
 import org.junit.Test
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import kotlin.concurrent.currentThread
 
 import kotlin.concurrent.thread
 import kotlin.test.assertTrue
@@ -29,7 +30,7 @@ class BlockingStreamPairTest
         var elapsed:Long = 0
         val delay = 3000L
 
-        val t = thread()
+        val t1 = thread()
         {
             start = System.currentTimeMillis()
             streamPair.outputStream.write(0)
@@ -38,16 +39,17 @@ class BlockingStreamPairTest
             println("elapsed time: $elapsed ms")
         }
 
-        thread(isDaemon = true)
+        val t2 = thread(isDaemon = true)
         {
             Thread.sleep(delay)
-            while (true)
+            while (!currentThread.isInterrupted)
             {
                 pipedOutputStream1.write(pipedInputStream2.read())
             }
         }
 
-        t.join()
+        t1.join()
+        t2.interrupt()
 
         assertTrue(elapsed >= delay)
     }
