@@ -68,7 +68,7 @@ public class BlockingQueueInputStreamTest
         var readResult = 0
         val t1 = thread()
         {
-            ins.source.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
+            ins.sourceQueue.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
             readResult = ins.read(ByteArray(15))
         }
         val t2 = thread()
@@ -88,8 +88,8 @@ public class BlockingQueueInputStreamTest
         var readResult = 0
         val t1 = thread()
         {
-            ins.source.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
-            ins.source.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
+            ins.sourceQueue.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
+            ins.sourceQueue.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
             readResult = ins.read(ByteArray(5))
         }
         val t2 = thread()
@@ -109,8 +109,8 @@ public class BlockingQueueInputStreamTest
         var result = 0
         val t1 = thread()
         {
-            ins.source.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
-            ins.source.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
+            ins.sourceQueue.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
+            ins.sourceQueue.put(byteArrayOf(1,1,1,1,1,1,1,1,1,1))
             ins.read(ByteArray(5))
             result = ins.available()
         }

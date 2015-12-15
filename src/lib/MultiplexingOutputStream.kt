@@ -27,7 +27,7 @@ open class MultiplexingOutputStream(
 
     /**
      * reference to the thread that is writing into this
-     * [MultiplexingOutputStream] because the thread could be blocked, may need
+     * [MultiplexingOutputStream] because the thread could be blocked; may need
      * interrupting if [close] is called.
      */
     private var writeThread:Thread? = null

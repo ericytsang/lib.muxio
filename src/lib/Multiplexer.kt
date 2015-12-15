@@ -32,7 +32,6 @@ class Multiplexer private constructor(
          *
          * @param inputStream used to receive multiplexed data from a
          * corresponding [Multiplexer] object.
-         *
          * @param outputStream used to send data to a corresponding
          * [Multiplexer] object.
          */
@@ -285,7 +284,7 @@ class Multiplexer private constructor(
             val data = ByteArray(len)
             multiplexedInputStream.readFully(data)
             val streamPair = demultiplexedStreamPairs[key] ?: return
-            if(!streamPair.first.isClosed) streamPair.first.source.put(data)
+            if(!streamPair.first.isClosed) streamPair.first.sourceQueue.put(data)
         }
     }
 
@@ -363,6 +362,7 @@ class Multiplexer private constructor(
     {
         override fun close()
         {
+            super.close()
             removeStreamPairIfClosed(port)
         }
     }
@@ -376,6 +376,7 @@ class Multiplexer private constructor(
 
         override fun close()
         {
+            super.close()
             sendCloseRemote(port)
             removeStreamPairIfClosed(port)
         }
