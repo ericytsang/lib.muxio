@@ -119,20 +119,7 @@ class Multiplexer private constructor(
      */
     fun connect(port:Short):Pair<InputStream,OutputStream>
     {
-        val demuxedStreamPair = Pair(
-
-            BlockingQueueInputStream(
-                closeListener = {
-                    removeStreamPairIfClosed(port)
-                }),
-
-            MultiplexingOutputStream(
-                multiplexedOutputStream = multiplexedOutputStream,
-                headerFactory = {b,off,len -> makeDataHeader(port,len)},
-                closeListener = {
-                    sendCloseRemote(port)
-                    removeStreamPairIfClosed(port)
-                }))
+        val demuxedStreamPair = Pair(MyInputStream(port),MyOutputStream(port))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -169,21 +156,7 @@ class Multiplexer private constructor(
     fun accept():Pair<InputStream,OutputStream>
     {
         val port = receivedConnectRequests.take()
-
-        val demuxedStreamPair = Pair(
-
-            BlockingQueueInputStream(
-                closeListener = {
-                    removeStreamPairIfClosed(port)
-                }),
-
-            MultiplexingOutputStream(
-                multiplexedOutputStream = multiplexedOutputStream,
-                headerFactory = {b,off,len -> makeDataHeader(port,len)},
-                closeListener = {
-                    sendCloseRemote(port)
-                    removeStreamPairIfClosed(port)
-                }))
+        val demuxedStreamPair = Pair(MyInputStream(port),MyOutputStream(port))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -383,6 +356,28 @@ class Multiplexer private constructor(
                     return
                 }
             }
+        }
+    }
+
+    private inner class MyInputStream(val port:Short):BlockingQueueInputStream()
+    {
+        override fun close()
+        {
+            removeStreamPairIfClosed(port)
+        }
+    }
+
+    private inner class MyOutputStream(val port:Short):MultiplexingOutputStream(multiplexedOutputStream)
+    {
+        override fun makeHeader(b:ByteArray,off:Int,len:Int):ByteArray
+        {
+            return makeDataHeader(port,len)
+        }
+
+        override fun close()
+        {
+            sendCloseRemote(port)
+            removeStreamPairIfClosed(port)
         }
     }
 

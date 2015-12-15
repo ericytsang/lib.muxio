@@ -11,9 +11,8 @@ import kotlin.concurrent.currentThread
 /**
  * Created by Eric Tsang on 12/13/2015.
  */
-class BlockingQueueInputStream(
-    val source:BlockingQueue<ByteArray> = LinkedBlockingQueue<ByteArray>(),
-    val closeListener:(()->Unit)? = null):
+open class BlockingQueueInputStream(
+    val source:BlockingQueue<ByteArray> = LinkedBlockingQueue<ByteArray>()):
     InputStream()
 {
     private var currentData:ByteBuffer = ByteBuffer.wrap(ByteArray(0))
@@ -117,6 +116,5 @@ class BlockingQueueInputStream(
     {
         isClosed = true
         readingThread?.interrupt()
-        closeListener?.invoke()
     }
 }
