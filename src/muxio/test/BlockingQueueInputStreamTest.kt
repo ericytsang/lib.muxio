@@ -1,6 +1,6 @@
-package test
+package muxio.test
 
-import lib.BlockingQueueInputStream
+import muxio.lib.BlockingQueueInputStream
 import org.junit.Test
 import java.io.EOFException
 import java.io.InterruptedIOException

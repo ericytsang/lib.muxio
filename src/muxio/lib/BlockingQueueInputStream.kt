@@ -1,4 +1,4 @@
-package lib
+package muxio.lib
 
 import java.io.EOFException
 import java.io.InputStream

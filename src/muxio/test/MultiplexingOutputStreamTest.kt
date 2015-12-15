@@ -1,6 +1,6 @@
-package test
+package muxio.test
 
-import lib.MultiplexingOutputStream
+import muxio.lib.MultiplexingOutputStream
 import org.junit.Test
 import java.io.*
 import java.nio.ByteBuffer

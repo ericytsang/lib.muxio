@@ -1,4 +1,4 @@
-package lib
+package muxio.lib
 
 import java.io.DataInputStream
 import java.io.DataOutputStream

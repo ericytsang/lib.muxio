@@ -1,6 +1,6 @@
-package test
+package muxio.test
 
-import lib.Multiplexer
+import muxio.lib.Multiplexer
 import org.junit.Test
 import java.io.DataInputStream
 import java.io.DataOutputStream
