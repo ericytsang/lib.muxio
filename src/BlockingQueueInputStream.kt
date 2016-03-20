@@ -1,12 +1,9 @@
-package muxio.lib
-
 import java.io.EOFException
 import java.io.InputStream
 import java.io.InterruptedIOException
 import java.nio.ByteBuffer
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
-import kotlin.concurrent.currentThread
 
 /**
  * [InputStream] that wraps any [BlockingQueue]. it is a [InputStream] adapter
@@ -91,7 +88,7 @@ open class BlockingQueueInputStream(
             {
                 try
                 {
-                    readingThread = currentThread
+                    readingThread = Thread.currentThread()
 
                     when
                     {

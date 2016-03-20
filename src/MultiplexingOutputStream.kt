@@ -1,9 +1,6 @@
-package muxio.lib
-
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.io.OutputStream
-import kotlin.concurrent.currentThread
 
 /**
  * used to multiplex and write data into the underlying shared
@@ -62,7 +59,7 @@ open class MultiplexingOutputStream(
     {
         try
         {
-            writeThread = currentThread
+            writeThread = Thread.currentThread()
 
             if (!isClosed)
             {
