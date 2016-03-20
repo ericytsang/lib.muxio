@@ -1,4 +1,4 @@
-package lib
+package muxio.lib
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -11,6 +11,12 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 
 /**
+ * that receives and de-multiplexes data from the [inputStream], and multiplexes
+ * data to send out the [outputStream]. provides methods ([connect] and
+ * [accept]) which can be used to create an [InputStream] to read de-multiplexed
+ * data from the [Multiplexer]'s [inputStream], and an [OutputStream] which can
+ * be used to write multiplexed data out the [Multiplexer]'s [outputStream].
+ *
  * Created by Eric Tsang on 12/12/2015.
  */
 class Multiplexer private constructor(
@@ -19,13 +25,31 @@ class Multiplexer private constructor(
 {
     companion object
     {
+        /**
+         * creates a [Multiplexer] that receives and de-multiplexes data from
+         * the [inputStream], and multiplexes data to send out the
+         * [outputStream].
+         *
+         * @param inputStream used to receive multiplexed data from a
+         * corresponding [Multiplexer] object.
+         * @param outputStream used to send data to a corresponding
+         * [Multiplexer] object.
+         */
         fun wrap(inputStream:InputStream,outputStream:OutputStream):Multiplexer =
             Multiplexer(inputStream,outputStream)
 
+        /**
+         * convenience method.
+         */
         fun wrap(streamPair:Pair<InputStream,OutputStream>):Multiplexer =
             Multiplexer(streamPair.first,streamPair.second)
     }
 
+    /**
+     * reads multiplexed data from the [Multiplexer]'s [inputStream], then
+     * parses and multiplexes the received data to the appropriate [InputStream]
+     * stored in [demultiplexedStreamPairs],
+     */
     private val readThread = ReadThread()
 
     init
@@ -56,32 +80,45 @@ class Multiplexer private constructor(
     private val releasedOnAccept = LinkedHashMap<Short,Semaphore>()
 
     /**
-     * queue of received connection requests that have yet to be accepted
+     * queue of received connection requests that have yet to be accepted.
      */
     private val receivedConnectRequests = LinkedBlockingQueue<Short>()
 
     /**
-     * blocks until the connect accepted, or the streams are closed.
-     * once accepted by the remote [Multiplexer], the method returns with a
-     * [Pair] of streams used to communicate with the remote [Pair] of streams
-     * returned when the remote [Multiplexer] called [accept].
+     * convenience method. automatically picks an unused port to connect to the
+     * remote [Multiplexer] by.
+     */
+    fun connect():Pair<InputStream,OutputStream>
+    {
+        synchronized(demultiplexedStreamPairs)
+        {
+            for(port in Short.MIN_VALUE..Short.MAX_VALUE)
+            {
+                try
+                {
+                    return connect(port.toShort())
+                }
+                catch(ex:ConnectException)
+                {
+                    // part of the normal flow...
+                }
+            }
+            throw ConnectException("all ports are in use...")
+        }
+    }
+
+    /**
+     * blocks until the connect request is accepted. once accepted by the remote
+     * [Multiplexer], the method returns with a [Pair] of streams used to
+     * communicate with the remote [Pair] of streams returned when the remote
+     * [Multiplexer] called [accept].
+     *
+     * @param port internal identifier for the demultiplexed stream. there can
+     * only be one active demultiplexed stream per port at any time.
      */
     fun connect(port:Short):Pair<InputStream,OutputStream>
     {
-        val demuxedStreamPair = Pair(
-
-            BlockingQueueInputStream(
-                closeListener = {
-                    removeStreamPairIfClosed(port)
-                }),
-
-            MultiplexingOutputStream(
-                multiplexedOutputStream = multiplexedOutputStream,
-                headerFactory = {b,off,len -> makeDataHeader(port,len)},
-                closeListener = {
-                    sendCloseRemote(port)
-                    removeStreamPairIfClosed(port)
-                }))
+        val demuxedStreamPair = Pair(MyInputStream(port),MyOutputStream(port))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -118,21 +155,7 @@ class Multiplexer private constructor(
     fun accept():Pair<InputStream,OutputStream>
     {
         val port = receivedConnectRequests.take()
-
-        val demuxedStreamPair = Pair(
-
-            BlockingQueueInputStream(
-                closeListener = {
-                    removeStreamPairIfClosed(port)
-                }),
-
-            MultiplexingOutputStream(
-                multiplexedOutputStream = multiplexedOutputStream,
-                headerFactory = {b,off,len -> makeDataHeader(port,len)},
-                closeListener = {
-                    sendCloseRemote(port)
-                    removeStreamPairIfClosed(port)
-                }))
+        val demuxedStreamPair = Pair(MyInputStream(port),MyOutputStream(port))
 
         // try to create a local sink to receive data for the stream pair
         synchronized(demultiplexedStreamPairs)
@@ -153,14 +176,20 @@ class Multiplexer private constructor(
         return demuxedStreamPair
     }
 
-    val isShutdown:Boolean
-        get() = readThread.isAlive
-
+    /**
+     * interrupts and terminates [Multiplexer.readThread]
+     */
     fun shutdown()
     {
         readThread.interrupt()
         readThread.join()
     }
+
+    /**
+     * returns true when [Multiplexer.readThread] is alive; false otherwise.]
+     */
+    val isShutdown:Boolean
+        get() = readThread.isAlive
 
     private fun prepareWaitUntilAccepted(port:Short)
     {
@@ -255,7 +284,7 @@ class Multiplexer private constructor(
             val data = ByteArray(len)
             multiplexedInputStream.readFully(data)
             val streamPair = demultiplexedStreamPairs[key] ?: return
-            if(!streamPair.first.isClosed) streamPair.first.source.put(data)
+            if(!streamPair.first.isClosed) streamPair.first.sourceQueue.put(data)
         }
     }
 
@@ -326,6 +355,30 @@ class Multiplexer private constructor(
                     return
                 }
             }
+        }
+    }
+
+    private inner class MyInputStream(val port:Short):BlockingQueueInputStream()
+    {
+        override fun close()
+        {
+            super.close()
+            removeStreamPairIfClosed(port)
+        }
+    }
+
+    private inner class MyOutputStream(val port:Short):MultiplexingOutputStream(multiplexedOutputStream)
+    {
+        override fun makeHeader(b:ByteArray,off:Int,len:Int):ByteArray
+        {
+            return makeDataHeader(port,len)
+        }
+
+        override fun close()
+        {
+            super.close()
+            sendCloseRemote(port)
+            removeStreamPairIfClosed(port)
         }
     }
 
