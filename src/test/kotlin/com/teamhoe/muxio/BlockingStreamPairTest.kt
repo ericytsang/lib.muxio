@@ -1,5 +1,6 @@
 package muxio.test
 
+import com.teamhoe.muxio.BlockingStreamPair
 import muxio.lib.BlockingStreamPair
 import org.junit.Test
 import java.io.PipedInputStream
