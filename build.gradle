@@ -11,6 +11,11 @@ buildscript {
 apply plugin: "kotlin"
 apply plugin: "application"
 
+tasks.withType(JavaCompile) {
+    sourceCompatibility = "1.6"
+    targetCompatibility = "1.6"
+}
+
 repositories {
     mavenCentral()
 }
