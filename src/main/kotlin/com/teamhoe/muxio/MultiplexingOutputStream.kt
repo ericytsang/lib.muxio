@@ -1,7 +1,6 @@
 package com.teamhoe.muxio
 
 import java.io.IOException
-import java.io.InterruptedIOException
 import java.io.OutputStream
 
 /**
@@ -57,7 +56,7 @@ open class MultiplexingOutputStream(
      * @param off specifies a starting index in [b].
      * @param len specifies an ending index in [b].
      */
-    override fun write(b:ByteArray,off:Int,len:Int)
+    override fun write(b:ByteArray,off:Int,len:Int) = synchronized(multiplexedOutputStream)
     {
         try
         {
@@ -66,29 +65,12 @@ open class MultiplexingOutputStream(
             if (!isClosed)
             {
                 val header = makeHeader(b,off,len)
-                synchronized(multiplexedOutputStream)
-                {
-                    multiplexedOutputStream.write(header)
-                    multiplexedOutputStream.write(b,off,len)
-                }
+                multiplexedOutputStream.write(header)
+                multiplexedOutputStream.write(b,off,len)
             }
             else
             {
                 throw IOException("stream is closed; cannot write.")
-            }
-        }
-
-        // catch InterruptedException as it might have been thrown as a
-        // result of "close" being called
-        catch(ex:InterruptedException)
-        {
-            if (isClosed)
-            {
-                throw IOException("stream is closed; cannot write.")
-            }
-            else
-            {
-                throw InterruptedIOException()
             }
         }
 
@@ -106,8 +88,18 @@ open class MultiplexingOutputStream(
      */
     override fun close()
     {
-        isClosed = true
-        writeThread?.interrupt()
+        if (isClosed)
+        {
+            throw IOException("already closed!")
+        }
+        else if (writeThread != null)
+        {
+            throw IOException("something is still being written...")
+        }
+        else
+        {
+            isClosed = true
+        }
     }
 
     /**

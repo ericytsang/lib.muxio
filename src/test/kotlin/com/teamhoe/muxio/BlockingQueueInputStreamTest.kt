@@ -1,6 +1,5 @@
-package muxio.test
+package com.teamhoe.muxio
 
-import muxio.lib.BlockingQueueInputStream
 import org.junit.Test
 import java.io.EOFException
 import java.io.InterruptedIOException
@@ -9,32 +8,6 @@ import kotlin.test.assertEquals
 
 class BlockingQueueInputStreamTest
 {
-    @Test
-    fun testCloseCausesEOFException()
-    {
-        val ins = BlockingQueueInputStream()
-        var success = false
-        val t1 = thread()
-        {
-            Thread.sleep(100)
-            ins.close()
-        }
-        val t2 = thread()
-        {
-            try
-            {
-                ins.read()
-            }
-            catch(ex:EOFException)
-            {
-                success = true
-            }
-        }
-        t1.join()
-        t2.join()
-        assertEquals(true,success)
-    }
-
     @Test
     fun testInterruptCausesInterruptException()
     {

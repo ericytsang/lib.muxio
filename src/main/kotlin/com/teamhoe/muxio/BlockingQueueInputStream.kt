@@ -22,14 +22,18 @@ open class BlockingQueueInputStream(
      * true when the socket is closed; false otherwise.
      */
     var isClosed:Boolean = false
-        private set
-
-    /**
-     * reference to the thread that is reading from this
-     * [BlockingQueueInputStream] because the thread could be blocked; may need
-     * interrupting if [close] is called.
-     */
-    private var readingThread:Thread? = null
+        set(value)
+        {
+            // cannot mutate value once closed
+            if (field && value != field)
+            {
+                throw IllegalStateException("cannot mutate value once closed")
+            }
+            else
+            {
+                field = value
+            }
+        }
 
     /**
      * reference to the data last taken from [sourceQueue]. a call to [read] may
@@ -78,65 +82,41 @@ open class BlockingQueueInputStream(
      * @param off the start offset in array b at which the data is written.
      * @param len the maximum number of bytes to read.
      */
-    override fun read(b:ByteArray,off:Int,len:Int):Int
+    override fun read(b:ByteArray,off:Int,len:Int):Int = synchronized(this)
     {
-        synchronized(this)
+        try
         {
-            var bytesRead = 0
-
             // make sure there is data in the currentData to consume blocking if
             // needed, else throw EOFException.
             if (!currentData.hasRemaining())
             {
-                try
+                when
                 {
-                    readingThread = Thread.currentThread()
+                // take the next ByteArray as the currentData to read from
+                // if there could potentially be or is a next ByteArray.
+                    !isClosed && sourceQueue.isEmpty() ->
+                        currentData = ByteBuffer.wrap(sourceQueue.take())
+                    sourceQueue.isNotEmpty() ->
+                        currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
 
-                    when
-                    {
-                    // take the next ByteArray as the currentData to read from
-                    // if there could potentially be or is a next ByteArray.
-                        !isClosed && sourceQueue.isEmpty() ->
-                            currentData = ByteBuffer.wrap(sourceQueue.take())
-                        sourceQueue.isNotEmpty() ->
-                            currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
-
-                    // no data available; EOF condition is met, throw
-                    // EOFException.
-                        isClosed && sourceQueue.isEmpty() ->
-                            throw EOFException()
-                    }
-                }
-                catch(ex:InterruptedException)
-                {
-                    // could have been interrupted by the call to close;
-                    // throw EOFException if EOF condition is met.
-                    if (isClosed && sourceQueue.isEmpty())
-                    {
+                // no data available; EOF condition is met, throw
+                // EOFException.
+                    isClosed && sourceQueue.isEmpty() ->
                         throw EOFException()
-                    }
-
-                    // propagate the exception up otherwise...maybe user
-                    // interrupted the thread on purpose.
-                    else
-                    {
-                        throw InterruptedIOException()
-                    }
-                }
-                finally
-                {
-                    readingThread = null
                 }
             }
 
             // read all remaining data into user buffer, or just until the
             // user's bytes to read requirement is met
-            val bytesToRead = Math.min(len-bytesRead,currentData.remaining())
-            bytesRead += bytesToRead
+            val bytesToRead = Math.min(len,currentData.remaining())
             currentData.get(b,off,bytesToRead)
 
             // return the number of bytes read
-            return bytesRead
+            return bytesToRead
+        }
+        catch (ex:InterruptedException)
+        {
+            throw InterruptedIOException()
         }
     }
 
@@ -153,16 +133,9 @@ open class BlockingQueueInputStream(
     }
 
     /**
-     * Closes this input stream and releases any system resources associated
-     * with the stream. any calls to read will consume and return the remaining
-     * buffered data within this stream. once all buffered data has been
-     * consumed, calls to read will throw [EOFException]s. in the case that
-     * there is already no buffered data in the stream, and [close] is called,
-     * the current call to [read] will throw an [EOFException].
+     * this implementation of close doesn't do anything
      */
     override fun close()
     {
-        isClosed = true
-        readingThread?.interrupt()
     }
 }

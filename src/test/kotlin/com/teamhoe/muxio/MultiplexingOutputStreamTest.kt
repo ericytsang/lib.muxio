@@ -1,6 +1,5 @@
-package muxio.test
+package com.teamhoe.muxio
 
-import muxio.lib.MultiplexingOutputStream
 import org.junit.Test
 import java.io.*
 import java.nio.ByteBuffer
@@ -150,7 +149,7 @@ class MultiplexingOutputStreamTest
     }
 
     @Test
-    fun testBlockingWriteCanBeInterruptedByClose()
+    fun testBlockingWriteCausesCloseToThrow()
     {
         val muxedOuts = PipedOutputStream(PipedInputStream(1))
         val demuxedOuts1 = MyMultiplexingOutputStream(muxedOuts,
@@ -159,21 +158,20 @@ class MultiplexingOutputStreamTest
 
         val t1 = thread()
         {
+            demuxedOuts1.write(byteArrayOf(1,1,1,1,1,1,1,1))
+        }
+        val t2 = thread()
+        {
             try
             {
-                demuxedOuts1.write(byteArrayOf(1,1,1,1,1,1,1,1))
+                Thread.sleep(100)
+                demuxedOuts1.close()
             }
             catch(ex:IOException)
             {
                 success = true
             }
         }
-        val t2 = thread()
-        {
-            Thread.sleep(100)
-            demuxedOuts1.close()
-        }
-        t1.join()
         t2.join()
         assertTrue(success,"write fails to block, or calling close did not throw IOException")
     }
