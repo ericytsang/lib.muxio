@@ -25,7 +25,7 @@ class Multiplexer(val outputStream:OutputStream)
     /**
      * underlying [DataOutputStream] that data is written and multiplexed into.
      */
-    private val preMultiplexedOutputStreams = LinkedHashMap<Short,OutputStream>()
+    private val preMultiplexedOutputStreams = LinkedHashMap<Long,OutputStream>()
 
     /**
      * convenience method. automatically picks an unused port to connect to the
@@ -33,11 +33,11 @@ class Multiplexer(val outputStream:OutputStream)
      */
     fun connect():OutputStream
     {
-        for(port in Short.MIN_VALUE..Short.MAX_VALUE)
+        for(port in Long.MIN_VALUE..Long.MAX_VALUE)
         {
             try
             {
-                return connect(port.toShort())
+                return connect(port)
             }
             catch(ex:ConnectException)
             {
@@ -54,7 +54,7 @@ class Multiplexer(val outputStream:OutputStream)
      * @param srcPort internal identifier for the demultiplexed stream. there can
      * only be one active demultiplexed stream per port at any time.
      */
-    fun connect(srcPort:Short):OutputStream = synchronized(preMultiplexedOutputStreams)
+    fun connect(srcPort:Long):OutputStream = synchronized(preMultiplexedOutputStreams)
     {
         if (!preMultiplexedOutputStreams.containsKey(srcPort))
         {
@@ -72,31 +72,31 @@ class Multiplexer(val outputStream:OutputStream)
         }
     }
 
-    private fun sendConnect(port:Short)
+    private fun sendConnect(port:Long)
     {
         synchronized(multiplexedOutputStream)
         {
             multiplexedOutputStream.writeShort(MessageType.CONNECT.ordinal)
-            multiplexedOutputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeLong(port)
         }
     }
 
-    private fun sendCloseRemote(port:Short)
+    private fun sendCloseRemote(port:Long)
     {
         synchronized(multiplexedOutputStream)
         {
             multiplexedOutputStream.writeShort(MessageType.CLOSE.ordinal)
-            multiplexedOutputStream.writeShort(port.toInt())
+            multiplexedOutputStream.writeLong(port)
         }
     }
 
-    private inner class MyOutputStream(val port:Short):MultiplexingOutputStream(multiplexedOutputStream)
+    private inner class MyOutputStream(val port:Long):MultiplexingOutputStream(multiplexedOutputStream)
     {
         override fun makeHeader(b:ByteArray,off:Int,len:Int):ByteArray
         {
-            return ByteBuffer.allocate(8)
+            return ByteBuffer.allocate(14)
                 .putShort(MessageType.DATA.ordinal.toShort())
-                .putShort(port)
+                .putLong(port)
                 .putInt(len)
                 .array()
         }

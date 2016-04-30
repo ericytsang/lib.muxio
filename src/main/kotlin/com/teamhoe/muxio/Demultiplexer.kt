@@ -30,7 +30,7 @@ class Demultiplexer(val inputStream:InputStream)
     /**
      * maps remote source port numbers to the associated [InputStream]s.
      */
-    private val demultiplexedInputStreams = LinkedHashMap<Short,BlockingQueueInputStream>()
+    private val demultiplexedInputStreams = LinkedHashMap<Long,BlockingQueueInputStream>()
 
     /**
      * queue of input streams waiting to be accepted. they may already contain
@@ -60,7 +60,7 @@ class Demultiplexer(val inputStream:InputStream)
 
     private fun receiveConnect() = synchronized(demultiplexedInputStreams)
     {
-        val port = multiplexedInputStream.readShort()
+        val port = multiplexedInputStream.readLong()
         if (!demultiplexedInputStreams.containsKey(port))
         {
             val inputStream = BlockingQueueInputStream(LinkedBlockingQueue())
@@ -75,7 +75,7 @@ class Demultiplexer(val inputStream:InputStream)
 
     private fun receiveData() = synchronized(demultiplexedInputStreams)
     {
-        val port = multiplexedInputStream.readShort()
+        val port = multiplexedInputStream.readLong()
         val len = multiplexedInputStream.readInt()
         val data = ByteArray(len)
         multiplexedInputStream.readFully(data)
@@ -88,7 +88,7 @@ class Demultiplexer(val inputStream:InputStream)
      */
     private fun receiveCloseRemote() = synchronized(demultiplexedInputStreams)
     {
-        val port = multiplexedInputStream.readShort()
+        val port = multiplexedInputStream.readLong()
         demultiplexedInputStreams.remove(port)?.isClosed = true
     }
 
