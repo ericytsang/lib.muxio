@@ -3,7 +3,6 @@ package com.teamhoe.muxio
 import java.io.DataOutputStream
 import java.io.OutputStream
 import java.net.ConnectException
-import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 
 /**
@@ -17,15 +16,23 @@ import java.util.LinkedHashMap
  */
 class Multiplexer(val outputStream:OutputStream)
 {
+    companion object
+    {
+        /**
+         * maximum number of bytes of user data allowed per data packet.
+         */
+        private const val MAX_USER_DATA_LEN = 100
+    }
+
     /**
      * underlying [DataOutputStream] that data is written and multiplexed into.
      */
     private val multiplexedOutputStream = DataOutputStream(outputStream)
 
     /**
-     * underlying [DataOutputStream] that data is written and multiplexed into.
+     * active [OutputStream]s that need multiplexing.
      */
-    private val preMultiplexedOutputStreams = LinkedHashMap<Long,OutputStream>()
+    private val demultiplexedOutputStreams = LinkedHashMap<Long,OutputStream>()
 
     /**
      * convenience method. automatically picks an unused port to connect to the
@@ -54,15 +61,19 @@ class Multiplexer(val outputStream:OutputStream)
      * @param srcPort internal identifier for the demultiplexed stream. there can
      * only be one active demultiplexed stream per port at any time.
      */
-    fun connect(srcPort:Long):OutputStream = synchronized(preMultiplexedOutputStreams)
+    fun connect(srcPort:Long):OutputStream = synchronized(demultiplexedOutputStreams)
     {
-        if (!preMultiplexedOutputStreams.containsKey(srcPort))
+        if (!demultiplexedOutputStreams.containsKey(srcPort))
         {
             val outputStream = MyOutputStream(srcPort)
-            preMultiplexedOutputStreams.put(srcPort,outputStream)
+            demultiplexedOutputStreams.put(srcPort,outputStream)
 
             // send a connect request to the remote multiplexer
-            sendConnect(srcPort)
+            synchronized(multiplexedOutputStream)
+            {
+                multiplexedOutputStream.writeShort(MessageType.CONNECT.ordinal)
+                multiplexedOutputStream.writeLong(srcPort)
+            }
 
             return outputStream
         }
@@ -72,40 +83,38 @@ class Multiplexer(val outputStream:OutputStream)
         }
     }
 
-    private fun sendConnect(port:Long)
+    private inner class MyOutputStream(val port:Long):AbstractOutputStream()
     {
-        synchronized(multiplexedOutputStream)
+        override fun doWrite(b:ByteArray,off:Int,len:Int)
         {
-            multiplexedOutputStream.writeShort(MessageType.CONNECT.ordinal)
-            multiplexedOutputStream.writeLong(port)
-        }
-    }
-
-    private fun sendCloseRemote(port:Long)
-    {
-        synchronized(multiplexedOutputStream)
-        {
-            multiplexedOutputStream.writeShort(MessageType.CLOSE.ordinal)
-            multiplexedOutputStream.writeLong(port)
-        }
-    }
-
-    private inner class MyOutputStream(val port:Long):MultiplexingOutputStream(multiplexedOutputStream)
-    {
-        override fun makeHeader(b:ByteArray,off:Int,len:Int):ByteArray
-        {
-            return ByteBuffer.allocate(14)
-                .putShort(MessageType.DATA.ordinal.toShort())
-                .putLong(port)
-                .putInt(len)
-                .array()
+            var writeCursor = off
+            var bytesRemaining = len
+            while (bytesRemaining > 0)
+            {
+                synchronized(multiplexedOutputStream)
+                {
+                    val bytesToWrite = Math.min(bytesRemaining,MAX_USER_DATA_LEN)
+                    multiplexedOutputStream.writeShort(MessageType.DATA.ordinal)
+                    multiplexedOutputStream.writeLong(port)
+                    multiplexedOutputStream.writeInt(bytesToWrite)
+                    multiplexedOutputStream.write(b,writeCursor,bytesToWrite)
+                    writeCursor += bytesToWrite
+                    bytesRemaining -= bytesToWrite
+                }
+            }
         }
 
-        override fun close()
+        override fun doClose()
         {
-            super.close()
-            sendCloseRemote(port)
-            preMultiplexedOutputStreams.remove(port)
+            synchronized(demultiplexedOutputStreams)
+            {
+                synchronized(multiplexedOutputStream)
+                {
+                    multiplexedOutputStream.writeShort(MessageType.CLOSE.ordinal)
+                    multiplexedOutputStream.writeLong(port)
+                }
+                demultiplexedOutputStreams.remove(port)
+            }
         }
     }
 }

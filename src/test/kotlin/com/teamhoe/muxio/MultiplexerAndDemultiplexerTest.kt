@@ -17,7 +17,7 @@ class MultiplexerAndDemultiplexerTest
     {
         val dataToSend = setOf(byteArrayOf(1,1,1,1,1,1),byteArrayOf(1,3,3,3,1,1),byteArrayOf(1,1,4,4,4,4))
         val dataReceived = setOf(ByteArray(6),ByteArray(6),ByteArray(6))
-        val pipedIns = PipedInputStream(100)
+        val pipedIns = PipedInputStream(1)
         val pipedOuts = PipedOutputStream(pipedIns)
         val demux = Demultiplexer(pipedIns)
         val mux = Multiplexer(pipedOuts)
@@ -26,7 +26,7 @@ class MultiplexerAndDemultiplexerTest
         {
             val connections = dataToSend.associate {it to mux.connect()}
             connections.forEach {it.value.write(it.key)}
-            connections.forEach {it.value.close()}
+            connections.forEach {println("closing");it.value.close();println("closed");}
             pipedOuts.close()
         }
         val t2 = thread()
@@ -34,8 +34,8 @@ class MultiplexerAndDemultiplexerTest
             val connections = dataReceived.associate {it to demux.accept()}
             connections.forEach {DataInputStream(it.value).readFully(it.key)}
             connections.forEach {it.value.close()}
-            demux.shutdown()
             pipedIns.close()
+            println(dataReceived.map {Arrays.toString(it)})
         }
         t1.join()
         t2.join()
