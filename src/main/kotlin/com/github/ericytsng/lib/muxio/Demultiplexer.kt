@@ -1,4 +1,4 @@
-package com.teamhoe.muxio
+package com.github.ericytsng.lib.muxio
 
 import java.io.DataInputStream
 import java.io.DataOutputStream

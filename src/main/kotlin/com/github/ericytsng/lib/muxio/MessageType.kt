@@ -1,4 +1,4 @@
-package com.teamhoe.muxio
+package com.github.ericytsng.lib.muxio
 
 /**
  * Created by surpl on 4/29/2016.
