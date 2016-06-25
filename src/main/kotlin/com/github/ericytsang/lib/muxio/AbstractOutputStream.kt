@@ -1,4 +1,4 @@
-package com.github.ericytsng.lib.muxio
+package com.github.ericytsang.lib.muxio
 
 import java.io.IOException
 import java.io.OutputStream

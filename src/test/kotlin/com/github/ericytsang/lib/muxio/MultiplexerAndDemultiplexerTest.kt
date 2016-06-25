@@ -1,7 +1,7 @@
 package com.github.ericytsang.lib.muxio
 
-import com.github.ericytsng.lib.muxio.Demultiplexer
-import com.github.ericytsng.lib.muxio.Multiplexer
+import com.github.ericytsang.lib.muxio.Demultiplexer
+import com.github.ericytsang.lib.muxio.Multiplexer
 import org.junit.Test
 import java.io.DataInputStream
 import java.io.PipedInputStream

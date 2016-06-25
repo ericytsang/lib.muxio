@@ -1,4 +1,4 @@
-package com.github.ericytsng.lib.muxio
+package com.github.ericytsang.lib.muxio
 
 /**
  * Created by surpl on 4/29/2016.
