@@ -1,19 +1,13 @@
 package com.github.ericytsang.lib.muxio
 
 import java.io.DataInputStream
-import java.io.DataOutputStream
 import java.io.InputStream
 import java.io.OutputStream
-import java.net.ConnectException
 import java.nio.ByteBuffer
 import java.util.LinkedHashMap
-import java.util.LinkedHashSet
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.Semaphore
 import java.util.concurrent.locks.ReentrantLock
-import java.util.concurrent.locks.ReentrantReadWriteLock
-import kotlin.concurrent.thread
 
 /**
  * that receives and de-multiplexes data from the [inputStream], and multiplexes
@@ -110,7 +104,7 @@ class Demultiplexer(val inputStream:InputStream)
     private fun receiveCloseRemote() = synchronized(demultiplexedInputStreams)
     {
         val port = multiplexedInputStream.readLong()
-        demultiplexedInputStreams.remove(port)?.notifyEofReached()
+        demultiplexedInputStreams.remove(port)?.isEof = true
     }
 
     /**
@@ -153,24 +147,30 @@ class Demultiplexer(val inputStream:InputStream)
     {
         val sourceQueue = LinkedBlockingQueue<ByteArray>()
 
+        var isEof = false
+
         private var currentData = ByteBuffer.wrap(ByteArray(0))
 
         override fun doRead(b:ByteArray,off:Int,len:Int):Int
         {
             while (true)
             {
-                // make sure there is data in the currentData to consume blocking if
-                // needed, else throw EOFException.
+                // make sure there is data in the currentData to consume
+                // blocking if needed, else return -1 indicating EOF.
                 if (!currentData.hasRemaining())
                 {
                     // take the next ByteArray as the currentData to read from
                     // if there could potentially be or is a next ByteArray.
-                    if (sourceQueue.isEmpty())
+                    if (sourceQueue.isEmpty() && !isEof)
                     {
                         awaitPacketArrivalAndProcessing()
                         continue
                     }
-                    else
+                    else if (sourceQueue.isEmpty() && isEof)
+                    {
+                        return -1
+                    }
+                    else if (sourceQueue.isNotEmpty())
                     {
                         currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
                     }

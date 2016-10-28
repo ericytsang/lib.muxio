@@ -65,4 +65,5 @@ class MultiplexerAndDemultiplexerTest
     @Test fun convertingByteTest2() = convertByteTest(254)
     @Test fun convertingByteTest3() = convertByteTest(5)
     @Test fun convertingByteTest4() = convertByteTest(Byte.MAX_VALUE.toInt())
+    @Test fun convertingByteTest5() = convertByteTest(Byte.MAX_VALUE.toInt()+8)
 }

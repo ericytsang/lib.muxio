@@ -1,12 +1,8 @@
 package com.github.ericytsang.lib.muxio
 
-import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
-import java.io.InterruptedIOException
-import java.nio.ByteBuffer
 import java.util.concurrent.BlockingQueue
-import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * [InputStream] that wraps any [BlockingQueue]. it is a [InputStream] adapter
@@ -17,12 +13,13 @@ import java.util.concurrent.LinkedBlockingQueue
  */
 abstract class AbstractInputStream:InputStream()
 {
+    val data = ByteArray(1)
+
     /**
      * convenience method
      */
     final override fun read():Int
     {
-        val data = ByteArray(1)
         val result = read(data)
 
         when (result)
@@ -31,7 +28,7 @@ abstract class AbstractInputStream:InputStream()
             -1 -> return result
 
         // if data was actually read, return the read data
-            1 -> return data[0].toInt()
+            1 -> return data[0].toInt().and(0xFF)
 
         // throw an exception in all other cases
             else -> throw RuntimeException("unhandled case in when statement!")
@@ -107,7 +104,9 @@ abstract class AbstractInputStream:InputStream()
     {
         override fun read(b:ByteArray,off:Int,len:Int):Int
         {
-            return doRead(b,off,len)
+            val readResult = doRead(b,off,len)
+            if (readResult == -1) this@AbstractInputStream.notifyEofReached()
+            return readResult
         }
 
         override fun available():Int
