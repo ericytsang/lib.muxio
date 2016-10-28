@@ -13,13 +13,12 @@ import java.util.concurrent.BlockingQueue
  */
 abstract class AbstractInputStream:InputStream()
 {
-    val data = ByteArray(1)
-
     /**
      * convenience method
      */
     final override fun read():Int
     {
+        val data = ByteArray(1)
         val result = read(data)
 
         when (result)
