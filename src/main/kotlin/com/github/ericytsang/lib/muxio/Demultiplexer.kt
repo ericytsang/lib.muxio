@@ -58,19 +58,16 @@ class Demultiplexer(val inputStream:InputStream)
 
     private val multiplexedInputStreamAccess = ReentrantLock()
 
-    fun accept():InputStream
+    fun accept():InputStream = notifiedAfterPacketIsReadAccess.withLock()
     {
-        notifiedAfterPacketIsReadAccess.withLock()
+        // wait for an input stream to be available
+        while (pendingInputStreams.peek() == null)
         {
-            // wait for an input stream to be available
-            while (pendingInputStreams.peek() == null)
-            {
-                awaitPacketArrivalAndProcessing()
-            }
-
-            // take the next input stream
-            return pendingInputStreams.poll()!!
+            awaitPacketArrivalAndProcessing()
         }
+
+        // take the next input stream
+        return@withLock pendingInputStreams.poll()!!
     }
 
     private fun receiveConnect()
@@ -173,43 +170,40 @@ class Demultiplexer(val inputStream:InputStream)
 
         private var currentData = ByteBuffer.wrap(ByteArray(0))
 
-        override fun doRead(b:ByteArray,off:Int,len:Int):Int
+        override fun doRead(b:ByteArray,off:Int,len:Int):Int = notifiedAfterPacketIsReadAccess.withLock()
         {
-            notifiedAfterPacketIsReadAccess.withLock()
+            while (!currentData.hasRemaining() && sourceQueue.isEmpty() && !isEof)
             {
-                while (!currentData.hasRemaining() && sourceQueue.isEmpty() && !isEof)
-                {
-                    awaitPacketArrivalAndProcessing()
-                }
-
-                // if there is no current data, but there is data in the queue,
-                // de-queue and set as current data
-                if (!currentData.hasRemaining() && sourceQueue.isNotEmpty())
-                {
-                    currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
-                }
-
-                // if there is data in the current data, return some to caller
-                if (currentData.hasRemaining())
-                {
-                    // read all remaining data into user buffer, or just until the
-                    // user's bytes to read requirement is met
-                    val bytesToRead = Math.min(len,currentData.remaining())
-                    currentData.get(b,off,bytesToRead)
-
-                    // return the number of bytes read
-                    return bytesToRead
-                }
-
-                // if current data is empty, source queue is empty and eof, indicate eof to caller
-                if (sourceQueue.isEmpty() && isEof)
-                {
-                    return -1
-                }
-
-                // if you've made it this far......idk what's happening
-                throw RuntimeException("if else should be exhaustive")
+                awaitPacketArrivalAndProcessing()
             }
+
+            // if there is no current data, but there is data in the queue,
+            // de-queue and set as current data
+            if (!currentData.hasRemaining() && sourceQueue.isNotEmpty())
+            {
+                currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
+            }
+
+            // if there is data in the current data, return some to caller
+            if (currentData.hasRemaining())
+            {
+                // read all remaining data into user buffer, or just until the
+                // user's bytes to read requirement is met
+                val bytesToRead = Math.min(len,currentData.remaining())
+                currentData.get(b,off,bytesToRead)
+
+                // return the number of bytes read
+                return@withLock bytesToRead
+            }
+
+            // if current data is empty, source queue is empty and eof, indicate eof to caller
+            if (sourceQueue.isEmpty() && isEof)
+            {
+                return@withLock -1
+            }
+
+            // if you've made it this far......idk what's happening
+            throw RuntimeException("if else should be exhaustive")
         }
 
         override fun doAvailable():Int
@@ -227,29 +221,26 @@ class Demultiplexer(val inputStream:InputStream)
          * arrive and that there is or will be control data indicating that the
          * writing side has closed
          */
-        override fun doClose()
+        override fun doClose() = notifiedAfterPacketIsReadAccess.withLock()
         {
-            notifiedAfterPacketIsReadAccess.withLock()
+            // wait while there's no application data for us to read, but
+            // we're not closed yet either...
+            while (sourceQueue.isEmpty() && demultiplexedInputStreams.values.contains(this))
             {
-                // wait while there's no application data for us to read, but
-                // we're not closed yet either...
-                while (sourceQueue.isEmpty() && demultiplexedInputStreams.values.contains(this))
-                {
-                    awaitPacketArrivalAndProcessing()
-                }
+                awaitPacketArrivalAndProcessing()
+            }
 
-                // throw exception if we broke the loop because new data arrived
-                if (sourceQueue.isNotEmpty())
-                {
-                    throw IllegalStateException("there is still data to read")
-                }
+            // throw exception if we broke the loop because new data arrived
+            if (sourceQueue.isNotEmpty())
+            {
+                throw IllegalStateException("there is still data to read")
+            }
 
-                // return from close if the de-multiplexer has received a close
-                // packet for this stream
-                if (!demultiplexedInputStreams.values.contains(this))
-                {
-                    return
-                }
+            // return from close if the de-multiplexer has received a close
+            // packet for this stream
+            if (!demultiplexedInputStreams.values.contains(this))
+            {
+                return@withLock
             }
         }
     }
