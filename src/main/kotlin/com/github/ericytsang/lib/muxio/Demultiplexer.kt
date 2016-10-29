@@ -132,18 +132,21 @@ class Demultiplexer(val inputStream:InputStream)
     private fun awaitPacketArrivalAndProcessing()
     {
         // acquire the muxed input stream then read and handle one packet
-        val releasedWhenPacketIsRead = releasedWhenPacketIsRead
         if (multiplexedInputStreamAccess.tryLock())
         {
             readPacket()
+            val releasedWhenPacketIsRead = releasedWhenPacketIsRead
             this.releasedWhenPacketIsRead = CountDownLatch(1)
-            releasedWhenPacketIsRead.countDown()
             multiplexedInputStreamAccess.unlock()
+            releasedWhenPacketIsRead.countDown()
         }
 
         // if we fail to acquire the input stream, just wait until we're
         // notified then repeat the whole process
-        releasedWhenPacketIsRead.await()
+        else
+        {
+            releasedWhenPacketIsRead.await()
+        }
     }
 
     private inner class MyInputStream:AbstractInputStream()
