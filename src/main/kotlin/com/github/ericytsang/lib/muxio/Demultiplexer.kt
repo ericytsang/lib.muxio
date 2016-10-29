@@ -26,20 +26,6 @@ class Demultiplexer(val inputStream:InputStream)
      */
     private val multiplexedInputStream = DataInputStream(inputStream)
 
-        get()
-        {
-            if (!multiplexedInputStreamAccess.isHeldByCurrentThread)
-            {
-                throw IllegalStateException("$multiplexedInputStreamAccess must be acquired before accessing $multiplexedInputStream")
-            }
-            return field
-        }
-
-    /**
-     * lock that threads must hold when accessing the [multiplexedInputStream].
-     */
-    private val multiplexedInputStreamAccess = ReentrantLock()
-
     /**
      * maps remote source port numbers to the associated [InputStream]s.
      */
@@ -52,29 +38,34 @@ class Demultiplexer(val inputStream:InputStream)
     private val pendingInputStreams = LinkedBlockingQueue<AbstractInputStream>()
 
     /**
-     * released whenever a packet is read. a new latch is created
+     * notified whenever a packet is read. synchronize on this object while
+     * checking if arrived data is already here, then call wait if it is not.
      */
-    private var releasedWhenPacketIsRead = CountDownLatch(1)
+    private var notifiedAfterPacketIsRead = CountDownLatch(1)
+
+    private val notifiedAfterPacketIsReadAccess = ReentrantLock()
+
+    private val multiplexedInputStreamAccess = ReentrantLock()
 
     fun accept():InputStream
     {
         while (true)
         {
             // try to take the next input stream if it exists
-            synchronized(pendingInputStreams)
+            notifiedAfterPacketIsReadAccess.withLock()
             {
                 if (pendingInputStreams.peek() != null)
                 {
                     return pendingInputStreams.take()
                 }
-            }
 
-            // wait for the next packet to arrive and be processed
-            awaitPacketArrivalAndProcessing()
+                // wait for the next packet to arrive and be processed
+                awaitPacketArrivalAndProcessing()
+            }
         }
     }
 
-    private fun receiveConnect() = synchronized(demultiplexedInputStreams)
+    private fun receiveConnect()
     {
         val port = multiplexedInputStream.readLong()
         if (!demultiplexedInputStreams.containsKey(port))
@@ -89,7 +80,7 @@ class Demultiplexer(val inputStream:InputStream)
         }
     }
 
-    private fun receiveData() = synchronized(demultiplexedInputStreams)
+    private fun receiveData()
     {
         val port = multiplexedInputStream.readLong()
         val len = multiplexedInputStream.readInt()
@@ -102,7 +93,7 @@ class Demultiplexer(val inputStream:InputStream)
     /**
      * unregister and close the indicated input stream.
      */
-    private fun receiveCloseRemote() = synchronized(demultiplexedInputStreams)
+    private fun receiveCloseRemote()
     {
         val port = multiplexedInputStream.readLong()
         demultiplexedInputStreams.remove(port)?.isEof = true
@@ -115,52 +106,50 @@ class Demultiplexer(val inputStream:InputStream)
      */
     private fun readPacket()
     {
+        if (!multiplexedInputStreamAccess.isHeldByCurrentThread)
+        {
+            throw IllegalStateException("must hold lock")
+        }
+
         // read header from stream
         val type = MessageType.values()[multiplexedInputStream.readShort().toInt()]
 
         // parse data depending on header
-        when (type)
+        notifiedAfterPacketIsReadAccess.withLock()
         {
-            MessageType.CONNECT -> receiveConnect()
-            MessageType.DATA -> receiveData()
-            MessageType.CLOSE -> receiveCloseRemote()
+            when (type)
+            {
+                MessageType.CONNECT -> receiveConnect()
+                MessageType.DATA -> receiveData()
+                MessageType.CLOSE -> receiveCloseRemote()
+            }
+            notifiedAfterPacketIsRead.countDown()
+            notifiedAfterPacketIsRead = CountDownLatch(1)
         }
     }
 
-    private val mutex = ReentrantLock()
-
     private fun awaitPacketArrivalAndProcessing()
     {
-        var _releasedWhenPacketIsRead:CountDownLatch? = null
-        var _isLockAcquired:Boolean? = null
-
-        mutex.withLock()
+        if (!notifiedAfterPacketIsReadAccess.isHeldByCurrentThread)
         {
-            _releasedWhenPacketIsRead = this.releasedWhenPacketIsRead
-            _isLockAcquired = multiplexedInputStreamAccess.tryLock()
+            throw IllegalStateException("must hold lock")
         }
-
-        val releasedWhenPacketIsRead = _releasedWhenPacketIsRead!!
-        val isLockAcquired = _isLockAcquired!!
 
         // there are 2 paths of execution. if you acquire the lock, read a
         // packet and then unblock all waiting threads.
-        if (isLockAcquired)
+        if (multiplexedInputStreamAccess.tryLock())
         {
+            notifiedAfterPacketIsReadAccess.unlock()
             readPacket()
-            mutex.withLock()
-            {
-                releasedWhenPacketIsRead.countDown()
-                this.releasedWhenPacketIsRead = CountDownLatch(1)
-                multiplexedInputStreamAccess.unlock()
-            }
+            notifiedAfterPacketIsReadAccess.lock()
+            multiplexedInputStreamAccess.unlock()
         }
 
         // if you fail to acquire the lock, then you wait until whoever did to
         // notify you that a packet was processed.
         else
         {
-            releasedWhenPacketIsRead.await()
+            notifiedAfterPacketIsRead.await()
         }
     }
 
@@ -180,20 +169,32 @@ class Demultiplexer(val inputStream:InputStream)
                 // blocking if needed, else return -1 indicating EOF.
                 if (!currentData.hasRemaining())
                 {
-                    // take the next ByteArray as the currentData to read from
-                    // if there could potentially be or is a next ByteArray.
-                    if (sourceQueue.isEmpty() && !isEof)
+                    val shouldContinue = notifiedAfterPacketIsReadAccess.withLock()
                     {
-                        awaitPacketArrivalAndProcessing()
+                        // take the next ByteArray as the currentData to read from
+                        // if there could potentially be or is a next ByteArray.
+                        if (sourceQueue.isEmpty() && !isEof)
+                        {
+                            awaitPacketArrivalAndProcessing()
+                            return@withLock true
+                        }
+                        else if (sourceQueue.isEmpty() && isEof)
+                        {
+                            return -1
+                        }
+                        else if (sourceQueue.isNotEmpty())
+                        {
+                            currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
+                            return@withLock false
+                        }
+                        else
+                        {
+                            throw RuntimeException("if else should be exhaustive")
+                        }
+                    }
+                    if (shouldContinue)
+                    {
                         continue
-                    }
-                    else if (sourceQueue.isEmpty() && isEof)
-                    {
-                        return -1
-                    }
-                    else if (sourceQueue.isNotEmpty())
-                    {
-                        currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
                     }
                 }
 
@@ -226,17 +227,20 @@ class Demultiplexer(val inputStream:InputStream)
         {
             while (true)
             {
-                if (sourceQueue.isNotEmpty())
+                notifiedAfterPacketIsReadAccess.withLock()
                 {
-                    throw IllegalStateException("there is still data to read")
-                }
+                    if (sourceQueue.isNotEmpty())
+                    {
+                        throw IllegalStateException("there is still data to read")
+                    }
 
-                if (!demultiplexedInputStreams.values.contains(this))
-                {
-                    return
-                }
+                    if (!demultiplexedInputStreams.values.contains(this))
+                    {
+                        return
+                    }
 
-                awaitPacketArrivalAndProcessing()
+                    awaitPacketArrivalAndProcessing()
+                }
             }
         }
     }
