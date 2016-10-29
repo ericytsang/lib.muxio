@@ -7,6 +7,7 @@ import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.locks.Lock
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -21,6 +22,16 @@ import kotlin.concurrent.withLock
  */
 class Demultiplexer(val inputStream:InputStream)
 {
+    private fun <T> Lock.withLock(action:()->T):T
+    {
+        lock()
+        try {
+            return action()
+        } finally {
+            unlock()
+        }
+    }
+
     /**
      * underlying [DataInputStream] that data is read and de-multiplexed from.
      */
