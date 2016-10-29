@@ -8,6 +8,7 @@ import java.util.LinkedHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * that receives and de-multiplexes data from the [inputStream], and multiplexes
@@ -126,16 +127,21 @@ class Demultiplexer(val inputStream:InputStream)
         }
     }
 
+    private val mutex = ReentrantLock()
+
     private fun awaitPacketArrivalAndProcessing()
     {
         // acquire the muxed input stream then read and handle one packet
-        val releasedWhenPacketIsRead = releasedWhenPacketIsRead
-        if (multiplexedInputStreamAccess.tryLock())
+        mutex.withLock()
         {
-            readPacket()
-            this.releasedWhenPacketIsRead = CountDownLatch(1)
-            multiplexedInputStreamAccess.unlock()
-            releasedWhenPacketIsRead.countDown()
+            val releasedWhenPacketIsRead = releasedWhenPacketIsRead
+            if (multiplexedInputStreamAccess.tryLock())
+            {
+                readPacket()
+                this.releasedWhenPacketIsRead = CountDownLatch(1)
+                multiplexedInputStreamAccess.unlock()
+                releasedWhenPacketIsRead.countDown()
+            }
         }
 
         // if we fail to acquire the input stream, just wait until we're
