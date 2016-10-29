@@ -127,8 +127,6 @@ class Demultiplexer(val inputStream:InputStream)
         }
     }
 
-    private val mutex = ReentrantLock()
-
     private fun awaitPacketArrivalAndProcessing()
     {
         // acquire the muxed input stream then read and handle one packet
