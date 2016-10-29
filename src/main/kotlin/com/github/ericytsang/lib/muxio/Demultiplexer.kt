@@ -149,7 +149,9 @@ class Demultiplexer(val inputStream:InputStream)
         // notify you that a packet was processed.
         else
         {
+            notifiedAfterPacketIsReadAccess.unlock()
             notifiedAfterPacketIsRead.await()
+            notifiedAfterPacketIsReadAccess.lock()
         }
     }
 
