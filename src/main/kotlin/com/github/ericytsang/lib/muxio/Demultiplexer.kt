@@ -127,20 +127,37 @@ class Demultiplexer(val inputStream:InputStream)
         }
     }
 
+    private val mutex = ReentrantLock()
+
     private fun awaitPacketArrivalAndProcessing()
     {
-        // acquire the muxed input stream then read and handle one packet
-        if (multiplexedInputStreamAccess.tryLock())
+        var _releasedWhenPacketIsRead:CountDownLatch? = null
+        var _isLockAcquired:Boolean? = null
+
+        mutex.withLock()
         {
-            readPacket()
-            val releasedWhenPacketIsRead = releasedWhenPacketIsRead
-            this.releasedWhenPacketIsRead = CountDownLatch(1)
-            multiplexedInputStreamAccess.unlock()
-            releasedWhenPacketIsRead.countDown()
+            _releasedWhenPacketIsRead = this.releasedWhenPacketIsRead
+            _isLockAcquired = multiplexedInputStreamAccess.tryLock()
         }
 
-        // if we fail to acquire the input stream, just wait until we're
-        // notified then repeat the whole process
+        val releasedWhenPacketIsRead = _releasedWhenPacketIsRead!!
+        val isLockAcquired = _isLockAcquired!!
+
+        // there are 2 paths of execution. if you acquire the lock, read a
+        // packet and then unblock all waiting threads.
+        if (isLockAcquired)
+        {
+            readPacket()
+            mutex.withLock()
+            {
+                releasedWhenPacketIsRead.countDown()
+                this.releasedWhenPacketIsRead = CountDownLatch(1)
+                multiplexedInputStreamAccess.unlock()
+            }
+        }
+
+        // if you fail to acquire the lock, then you wait until whoever did to
+        // notify you that a packet was processed.
         else
         {
             releasedWhenPacketIsRead.await()
