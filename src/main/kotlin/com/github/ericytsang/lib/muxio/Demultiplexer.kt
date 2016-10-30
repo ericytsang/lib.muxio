@@ -135,24 +135,34 @@ class Demultiplexer(val inputStream:InputStream)
 
         // unlock the lock since thread is entering "wait" state
         notifiedAfterPacketIsReadAccess.unlock()
-
-        // there are 2 paths of execution. if you acquire the lock, read a
-        // packet and then unblock all waiting threads.
-        if (multiplexedInputStreamAccess.tryLock())
+        try
         {
-            readPacket()
-            multiplexedInputStreamAccess.unlock()
-        }
+            // there are 2 paths of execution. if you acquire the lock, read a
+            // packet and then unblock all waiting threads.
+            if (multiplexedInputStreamAccess.tryLock())
+            {
+                try
+                {
+                    readPacket()
+                }
+                finally
+                {
+                    multiplexedInputStreamAccess.unlock()
+                }
+            }
 
-        // if you fail to acquire the lock, then you wait until whoever did to
-        // notify you that a packet was processed.
-        else
+            // if you fail to acquire the lock, then you wait until whoever did to
+            // notify you that a packet was processed.
+            else
+            {
+                notifiedAfterPacketIsRead.await()
+            }
+        }
+        finally
         {
-            notifiedAfterPacketIsRead.await()
+            // lock the lock as thread is leaving "wait" state
+            notifiedAfterPacketIsReadAccess.lock()
         }
-
-        // lock the lock as thread is leaving "wait" state
-        notifiedAfterPacketIsReadAccess.lock()
     }
 
     private inner class MyInputStream:AbstractInputStream()
