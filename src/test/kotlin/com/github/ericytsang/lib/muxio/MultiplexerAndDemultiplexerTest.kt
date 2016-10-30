@@ -2,6 +2,7 @@ package com.github.ericytsang.lib.muxio
 
 import org.junit.Test
 import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.util.Arrays
@@ -43,6 +44,29 @@ class MultiplexerAndDemultiplexerTest
 
         assert(dataReceived.map {Arrays.toString(it)}.toSet() == dataToSend.map {Arrays.toString(it)}.toSet())
     }
+
+    @Test
+    fun lotsOfConnections()
+    {
+        val threads = listOf(
+            thread() {repeat(1024) {mux.connect().let(::DataOutputStream).use {it.writeUTF("${Thread.currentThread()}")}}},
+            thread() {repeat(1024) {mux.connect().let(::DataOutputStream).use {it.writeUTF("${Thread.currentThread()}")}}},
+            thread() {repeat(1024) {mux.connect().let(::DataOutputStream).use {it.writeUTF("${Thread.currentThread()}")}}},
+            thread() {repeat(1024) {mux.connect().let(::DataOutputStream).use {it.writeUTF("${Thread.currentThread()}")}}},
+            thread() {repeat(1024) {demux.accept().let(::DataInputStream).use {println(it.readUTF())}}},
+            thread() {repeat(1024) {demux.accept().let(::DataInputStream).use {println(it.readUTF())}}},
+            thread() {repeat(1024) {demux.accept().let(::DataInputStream).use {println(it.readUTF())}}},
+            thread() {repeat(1024) {demux.accept().let(::DataInputStream).use {println(it.readUTF())}}})
+        threads.forEach {it.join()}
+    }
+
+    @Test
+    fun writeAndCloseBeforeRead()
+    {
+        repeat(8) {mux.connect().let(::DataOutputStream).use {it.writeUTF("${Thread.currentThread()}")}}
+        repeat(8) {demux.accept().let(::DataInputStream).use {println(it.readUTF())}}
+    }
+
 
     @Test
     fun connectSendCloseThenAcceptAndRead()
