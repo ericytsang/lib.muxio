@@ -15,50 +15,27 @@ import java.io.OutputStream
  */
 abstract class AbstractOutputStream:OutputStream()
 {
-    /**
-     * convenience method
-     */
-    final override fun write(b:Int)
-    {
-        write(byteArrayOf(b.toByte()))
-    }
+    final override fun write(b:Int) = write(byteArrayOf(b.toByte()))
+    final override fun write(b:ByteArray) = write(b,0,b.size)
+    final override fun write(b:ByteArray,off:Int,len:Int) = state.write(b,off,len)
+    final override fun close() = state.close()
 
     /**
-     * convenience method
-     */
-    final override fun write(b:ByteArray)
-    {
-        write(b,0,b.size)
-    }
-
-    /**
-     * generates a header for the passed data using [makeHeader], then writes
-     * the header followed by the passed data out the [multiplexedOutputStream].
-     * [off] and [len] specify an inclusive range of indices of data that will
-     * be written from [b] out the [multiplexedOutputStream].
+     * this method should be implemented such that any calls to [doClose] will
+     * make an IOException thrown from this method right away.
      *
      * @param b [ByteArray] of data that will be sent from.
      * @param off specifies a starting index in [b].
      * @param len specifies an ending index in [b].
      */
-    final override fun write(b:ByteArray,off:Int,len:Int) = synchronized(this)
-    {
-        state.write(b,off,len)
-    }
+    protected abstract fun doWrite(b:ByteArray,off:Int,len:Int)
 
     /**
      * closes the stream. once closed, any subsequent calls to write will throw
      * an [IOException]. any ongoing calls to write immediately throw an
      * [IOException].
      */
-    final override fun close() = synchronized(this)
-    {
-        state.close()
-    }
-
-    abstract fun doWrite(b:ByteArray,off:Int,len:Int)
-
-    abstract fun doClose()
+    protected abstract fun doClose()
 
     private var state:State = Opened()
 
@@ -68,9 +45,9 @@ abstract class AbstractOutputStream:OutputStream()
         fun close()
     }
 
-    inner class Opened:State
+    private inner class Opened:State
     {
-        override fun write(b:ByteArray,off:Int,len:Int)
+        override fun write(b:ByteArray,off:Int,len:Int) = synchronized(this)
         {
             doWrite(b,off,len)
         }
@@ -78,20 +55,21 @@ abstract class AbstractOutputStream:OutputStream()
         override fun close()
         {
             state = Closed()
-            doClose()
         }
     }
 
-    inner class Closed:State
+    private inner class Closed:State
     {
-        override fun write(b:ByteArray,off:Int,len:Int)
+        init
         {
-            throw IOException("stream is closed; cannot write.")
+            doClose()
         }
 
-        override fun close()
+        override fun write(b:ByteArray,off:Int,len:Int)
         {
-            throw IOException("already closed!")
+            throw IOException("stream closed; cannot write.")
         }
+
+        override fun close() = Unit
     }
 }

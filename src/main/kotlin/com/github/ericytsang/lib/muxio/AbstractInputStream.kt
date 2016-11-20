@@ -1,6 +1,5 @@
 package com.github.ericytsang.lib.muxio
 
-import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.BlockingQueue
 
@@ -13,9 +12,6 @@ import java.util.concurrent.BlockingQueue
  */
 abstract class AbstractInputStream:InputStream()
 {
-    /**
-     * convenience method
-     */
     final override fun read():Int
     {
         val data = ByteArray(1)
@@ -33,14 +29,11 @@ abstract class AbstractInputStream:InputStream()
             else -> throw RuntimeException("unhandled case in when statement!")
         }
     }
-
-    /**
-     * convenience method
-     */
-    final override fun read(b:ByteArray):Int
-    {
-        return read(b,0,b.size)
-    }
+    final override fun read(b:ByteArray):Int = read(b,0,b.size)
+    final override fun read(b:ByteArray,off:Int,len:Int):Int = state.read(b,off,len)
+    final override fun available():Int = 0
+    final override fun close() = state.close()
+    val isClosed:Boolean get() = state.isClosed
 
     /**
      * Reads up to len bytes of data from the input stream into an array of
@@ -53,121 +46,39 @@ abstract class AbstractInputStream:InputStream()
      * @param off the start offset in array b at which the data is written.
      * @param len the maximum number of bytes to read.
      */
-    final override fun read(b:ByteArray,off:Int,len:Int):Int = synchronized(this)
-    {
-        return state.read(b,off,len)
-    }
+    protected abstract fun doRead(b:ByteArray,off:Int,len:Int):Int
 
-    /**
-     * Returns an estimate of the number of bytes that can be read (or skipped
-     * over) from this input stream without blocking by the next invocation of a
-     * method for this input stream. The next invocation might be the same
-     * thread or another thread. A single read or skip of this many bytes will
-     * not block, but may read or skip fewer bytes.
-     */
-    final override fun available():Int = synchronized(this)
-    {
-        return state.available()
-    }
+    protected abstract fun doClose()
 
-    /**
-     * this implementation of close doesn't do anything
-     */
-    final override fun close() = synchronized(this)
-    {
-        state.close()
-    }
-
-    fun notifyEofReached() = synchronized(this)
-    {
-        state.notifyEofReached()
-    }
-
-    abstract fun doRead(b:ByteArray,off:Int,len:Int):Int
-
-    abstract fun doAvailable():Int
-
-    abstract fun doClose()
-
-    private var state:State = DataAvailable()
+    private var state:State = Opened()
 
     private interface State
     {
+        val isClosed:Boolean
         fun read(b:ByteArray,off:Int,len:Int):Int
-        fun available():Int
         fun close()
-        fun notifyEofReached()
     }
 
-    private inner class DataAvailable:State
+    private inner class Opened:State
     {
-        override fun read(b:ByteArray,off:Int,len:Int):Int
+        override fun read(b:ByteArray,off:Int,len:Int):Int = synchronized(this)
         {
             val readResult = doRead(b,off,len)
-            if (readResult == -1) this@AbstractInputStream.notifyEofReached()
+            if (readResult == -1)
+            {
+                state = Closed()
+            }
             return readResult
         }
-
-        override fun available():Int
-        {
-            return doAvailable()
-        }
-
-        override fun close()
-        {
-            doClose()
-            state = Closed()
-        }
-
-        override fun notifyEofReached()
-        {
-            state = EndOfFile()
-        }
-    }
-
-    private inner class EndOfFile:State
-    {
-        override fun read(b:ByteArray,off:Int,len:Int):Int
-        {
-            return -1
-        }
-
-        override fun available():Int
-        {
-            return 0
-        }
-
-        override fun close()
-        {
-            state = Closed()
-        }
-
-        override fun notifyEofReached()
-        {
-            throw IOException("already eof!")
-        }
+        override val isClosed:Boolean get() = false
+        override fun close() { state = Closed() }
     }
 
     private inner class Closed:State
     {
-        override fun read(b:ByteArray,off:Int,len:Int):Int
-        {
-            throw IOException("already closed!")
-        }
-
-        override fun available():Int
-        {
-            throw IOException("already closed!")
-        }
-
-        override fun close()
-        {
-            throw IOException("already closed!")
-        }
-
-        override fun notifyEofReached()
-        {
-            throw IOException("already closed!")
-        }
+        init { doClose() }
+        override fun read(b:ByteArray,off:Int,len:Int):Int = -1
+        override fun close() = Unit
+        override val isClosed:Boolean get() = true
     }
 }

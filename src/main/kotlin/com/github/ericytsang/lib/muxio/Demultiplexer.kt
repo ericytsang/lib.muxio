@@ -211,16 +211,6 @@ class Demultiplexer(val inputStream:InputStream)
             }
         }
 
-        override fun doAvailable():Int
-        {
-            if (!currentData.hasRemaining() && sourceQueue.isNotEmpty())
-            {
-                currentData = ByteBuffer.wrap(sourceQueue.poll()!!)
-            }
-
-            return currentData.remaining()
-        }
-
         /**
          * calling this close means that you are expecting no more user data to
          * arrive and that there is or will be control data indicating that the
