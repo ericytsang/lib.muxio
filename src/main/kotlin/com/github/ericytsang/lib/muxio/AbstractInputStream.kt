@@ -33,7 +33,6 @@ abstract class AbstractInputStream:InputStream()
     final override fun read(b:ByteArray,off:Int,len:Int):Int = state.read(b,off,len)
     final override fun available():Int = 0
     final override fun close() = state.close()
-    val isClosed:Boolean get() = state.isClosed
 
     /**
      * Reads up to len bytes of data from the input stream into an array of
@@ -54,7 +53,6 @@ abstract class AbstractInputStream:InputStream()
 
     private interface State
     {
-        val isClosed:Boolean
         fun read(b:ByteArray,off:Int,len:Int):Int
         fun close()
     }
@@ -70,7 +68,6 @@ abstract class AbstractInputStream:InputStream()
             }
             return readResult
         }
-        override val isClosed:Boolean get() = false
         override fun close() { state = Closed() }
     }
 
@@ -79,6 +76,5 @@ abstract class AbstractInputStream:InputStream()
         init { doClose() }
         override fun read(b:ByteArray,off:Int,len:Int):Int = -1
         override fun close() = Unit
-        override val isClosed:Boolean get() = true
     }
 }
